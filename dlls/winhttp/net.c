@@ -291,6 +291,7 @@ void netconn_addref( struct netconn *conn )
 void netconn_release( struct netconn *conn )
 {
     if (InterlockedDecrement( &conn->refs )) return;
+    http2_destroy( conn );
     TRACE( "Closing connection %p.\n", conn );
     if (conn->secure)
     {
@@ -388,7 +389,11 @@ static DWORD netconn_negotiate( struct netconn *conn, WCHAR *hostname, CredHandl
                 0, NULL, &out_desc, &attrs, NULL);
         TRACE( "InitializeSecurityContext ret %#lx\n", status );
         if(status == SEC_E_OK && in_bufs[1].BufferType == SECBUFFER_EXTRA)
-            FIXME("SECBUFFER_EXTRA not supported\n");
+        {
+            conn->extra_len = in_bufs[1].cbBuffer;
+            if (!(conn->extra_buf = malloc( conn->extra_len ))) status = SEC_E_INSUFFICIENT_MEMORY;
+            else memcpy( conn->extra_buf, read_buf + in_bufs[0].cbBuffer - conn->extra_len, conn->extra_len );
+        }
     }
 
     free(read_buf);
@@ -397,14 +402,19 @@ static DWORD netconn_negotiate( struct netconn *conn, WCHAR *hostname, CredHandl
 }
 
 DWORD netconn_secure_connect( struct netconn *conn, WCHAR *hostname, DWORD security_flags, CredHandle *cred_handle,
-                              BOOL check_revocation )
+                              BOOL check_revocation, BOOL enable_http2 )
 {
     CtxtHandle ctx = {0};
     const CERT_CONTEXT *cert;
     SECURITY_STATUS status;
     DWORD res = ERROR_SUCCESS;
+    /* SEC_APPLICATION_PROTOCOLS: list length, ALPN extension, protocol list. */
+    BYTE alpn[] = { 18,0,0,0, 2,0,0,0, 12,0, 2,'h','2', 8,'h','t','t','p','/','1','.','1' };
+    SecBuffer protocol_buffer = { sizeof(alpn), SECBUFFER_APPLICATION_PROTOCOLS, alpn };
+    SecBufferDesc protocols = { SECBUFFER_VERSION, 1, &protocol_buffer };
+    SecPkgContext_ApplicationProtocol negotiated;
 
-    status = netconn_negotiate(conn, hostname, cred_handle, NULL, NULL, &ctx);
+    status = netconn_negotiate(conn, hostname, cred_handle, NULL, enable_http2 ? &protocols : NULL, &ctx);
     if(status != SEC_E_OK || res != ERROR_SUCCESS)
         goto failed;
 
@@ -426,6 +436,10 @@ DWORD netconn_secure_connect( struct netconn *conn, WCHAR *hostname, DWORD secur
         WARN( "cert verify failed: %lu\n", res );
         goto failed;
     }
+
+    if (enable_http2 && QueryContextAttributesW( &ctx, SECPKG_ATTR_APPLICATION_PROTOCOL, &negotiated ) == SEC_E_OK)
+        conn->http2 = negotiated.ProtoNegoStatus == SecApplicationProtocolNegotiationStatus_Success &&
+                      negotiated.ProtocolIdSize == 2 && !memcmp( negotiated.ProtocolId, "h2", 2 );
 
     conn->ssl_read_buf = malloc(conn->ssl_sizes.cbHeader + conn->ssl_sizes.cbMaximumMessage + conn->ssl_sizes.cbTrailer);
     if(!conn->ssl_read_buf) {
