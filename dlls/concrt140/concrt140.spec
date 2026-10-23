@@ -650,7 +650,7 @@
 @ stub -arch=arm ?_TryAcquireWrite@_ReaderWriterLock@details@Concurrency@@QAA_NXZ
 @ stub -arch=i386 ?_TryAcquireWrite@_ReaderWriterLock@details@Concurrency@@QAE_NXZ
 @ stub -arch=win64 ?_TryAcquireWrite@_ReaderWriterLock@details@Concurrency@@QEAA_NXZ
-@ stub ?_UnderlyingYield@details@Concurrency@@YAXXZ
+@ cdecl ?_UnderlyingYield@details@Concurrency@@YAXXZ() details_UnderlyingYield
 @ cdecl ?_Value@_SpinCount@details@Concurrency@@SAIXZ() SpinCount__Value
 @ cdecl ?_Yield@_Context@details@Concurrency@@SAXXZ() Context_Yield
 @ stub -arch=arm ?cancel@agent@Concurrency@@QAA_NXZ

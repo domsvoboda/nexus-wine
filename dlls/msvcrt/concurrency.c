@@ -77,6 +77,10 @@ typedef struct {
         Context*, (Context*, unsigned int), (this, flags))
 #define call_Context_Block(this) CALL_VTBL_FUNC(this, 24, \
         void, (Context*), (this))
+#ifdef _CONCRT
+#define call_Context_SpinYield(this) CALL_VTBL_FUNC(this, 32, \
+        void, (Context*), (this))
+#endif
 
 typedef struct {
     Context *context;
@@ -866,6 +870,21 @@ void __cdecl Context_Yield(void)
     if (!once++)
         FIXME("()\n");
 }
+
+/* ?_UnderlyingYield@details@Concurrency@@YAXXZ */
+#ifdef _CONCRT
+void __cdecl details_UnderlyingYield(void)
+{
+    Context *ctx = try_get_current_context();
+
+    /* Do not create a context or scheduler just to yield. Wine's external
+     * contexts are backed by OS threads; custom contexts supply SpinYield. */
+    if (ctx && ctx->vtable != &ExternalContextBase_vtable)
+        call_Context_SpinYield(ctx);
+    else
+        SwitchToThread();
+}
+#endif
 
 /* ?_SpinYield@Context@Concurrency@@SAXXZ */
 void __cdecl Context__SpinYield(void)
