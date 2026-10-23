@@ -67,14 +67,10 @@ static HANDLE diag_file;
 
 static void diag_init( void )
 {
-    char path[MAX_PATH];
-    AcquireSRWLockExclusive( &diag_lock );
-    if (!diag_file)
-    {
-        if (GetEnvironmentVariableA( "XUSER_WINHTTP_BODY_LOG", path, MAX_PATH ) && *path)
-            diag_file = CreateFileA( path, GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL );
-    }
-    ReleaseSRWLockExclusive( &diag_lock );
+    /* Do not activate the legacy printable-run body scanner in a shared
+     * runtime. Token fragments can match its identifier-shaped whitelist.
+     * Keep transport tracing numerical; schema-aware diagnostics belong in
+     * a separately audited opt-in tool, not the distributed DLL. */
 }
 
 static void diag_emit( char *out, size_t size, size_t *pos, const char *text )
