@@ -18,9 +18,9 @@
 @ cdecl -arch=arm ??0_Concurrent_queue_base_v4@details@Concurrency@@IAA@I@Z(ptr long) _Concurrent_queue_base_v4_ctor
 @ thiscall -arch=i386 ??0_Concurrent_queue_base_v4@details@Concurrency@@IAE@I@Z(ptr long) _Concurrent_queue_base_v4_ctor
 @ cdecl -arch=win64 ??0_Concurrent_queue_base_v4@details@Concurrency@@IEAA@_K@Z(ptr long) _Concurrent_queue_base_v4_ctor
-@ stub -arch=arm ??0_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAA@ABV_Concurrent_queue_base_v4@12@@Z
-@ stub -arch=i386 ??0_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAE@ABV_Concurrent_queue_base_v4@12@@Z
-@ stub -arch=win64 ??0_Concurrent_queue_iterator_base_v4@details@Concurrency@@IEAA@AEBV_Concurrent_queue_base_v4@12@@Z
+@ cdecl -arch=arm ??0_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAA@ABV_Concurrent_queue_base_v4@12@@Z(ptr ptr) _Concurrent_queue_iterator_base_v4_ctor
+@ thiscall -arch=i386 ??0_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAE@ABV_Concurrent_queue_base_v4@12@@Z(ptr ptr) _Concurrent_queue_iterator_base_v4_ctor
+@ cdecl -arch=win64 ??0_Concurrent_queue_iterator_base_v4@details@Concurrency@@IEAA@AEBV_Concurrent_queue_base_v4@12@@Z(ptr ptr) _Concurrent_queue_iterator_base_v4_ctor
 @ cdecl -arch=arm ??0_Condition_variable@details@Concurrency@@QAA@XZ(ptr) _Condition_variable_ctor
 @ thiscall -arch=i386 ??0_Condition_variable@details@Concurrency@@QAE@XZ(ptr) _Condition_variable_ctor
 @ cdecl -arch=win64 ??0_Condition_variable@details@Concurrency@@QEAA@XZ(ptr) _Condition_variable_ctor
@@ -243,9 +243,9 @@
 @ cdecl -arch=arm ??1_Concurrent_queue_base_v4@details@Concurrency@@MAA@XZ(ptr) _Concurrent_queue_base_v4_dtor
 @ thiscall -arch=i386 ??1_Concurrent_queue_base_v4@details@Concurrency@@MAE@XZ(ptr) _Concurrent_queue_base_v4_dtor
 @ cdecl -arch=win64 ??1_Concurrent_queue_base_v4@details@Concurrency@@MEAA@XZ(ptr) _Concurrent_queue_base_v4_dtor
-@ stub -arch=arm ??1_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAA@XZ
-@ stub -arch=i386 ??1_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAE@XZ
-@ stub -arch=win64 ??1_Concurrent_queue_iterator_base_v4@details@Concurrency@@IEAA@XZ
+@ cdecl -arch=arm ??1_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAA@XZ(ptr) _Concurrent_queue_iterator_base_v4_dtor
+@ thiscall -arch=i386 ??1_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAE@XZ(ptr) _Concurrent_queue_iterator_base_v4_dtor
+@ cdecl -arch=win64 ??1_Concurrent_queue_iterator_base_v4@details@Concurrency@@IEAA@XZ(ptr) _Concurrent_queue_iterator_base_v4_dtor
 @ cdecl -arch=arm ??1_Concurrent_vector_base_v4@details@Concurrency@@IAA@XZ(ptr) _Concurrent_vector_base_v4_dtor
 @ thiscall -arch=i386 ??1_Concurrent_vector_base_v4@details@Concurrency@@IAE@XZ(ptr) _Concurrent_vector_base_v4_dtor
 @ cdecl -arch=win64 ??1_Concurrent_vector_base_v4@details@Concurrency@@IEAA@XZ(ptr) _Concurrent_vector_base_v4_dtor
@@ -427,12 +427,12 @@
 @ stub -arch=arm ?_AcquireWrite@_ReaderWriterLock@details@Concurrency@@QAAXXZ
 @ stub -arch=i386 ?_AcquireWrite@_ReaderWriterLock@details@Concurrency@@QAEXXZ
 @ stub -arch=win64 ?_AcquireWrite@_ReaderWriterLock@details@Concurrency@@QEAAXXZ
-@ stub -arch=arm ?_Advance@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAAXXZ
-@ stub -arch=i386 ?_Advance@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAEXXZ
-@ stub -arch=win64 ?_Advance@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IEAAXXZ
-@ stub -arch=arm ?_Assign@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAAXABV123@@Z
-@ stub -arch=i386 ?_Assign@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAEXABV123@@Z
-@ stub -arch=win64 ?_Assign@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IEAAXAEBV123@@Z
+@ cdecl -arch=arm ?_Advance@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAAXXZ(ptr) _Concurrent_queue_iterator_base_v4__Advance
+@ thiscall -arch=i386 ?_Advance@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAEXXZ(ptr) _Concurrent_queue_iterator_base_v4__Advance
+@ cdecl -arch=win64 ?_Advance@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IEAAXXZ(ptr) _Concurrent_queue_iterator_base_v4__Advance
+@ cdecl -arch=arm ?_Assign@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAAXABV123@@Z(ptr ptr) _Concurrent_queue_iterator_base_v4__Assign
+@ thiscall -arch=i386 ?_Assign@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAEXABV123@@Z(ptr ptr) _Concurrent_queue_iterator_base_v4__Assign
+@ cdecl -arch=win64 ?_Assign@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IEAAXAEBV123@@Z(ptr ptr) _Concurrent_queue_iterator_base_v4__Assign
 @ extern ?_Byte_reverse_table@details@Concurrency@@3QBEB byte_reverse_table
 @ cdecl -arch=arm ?_Cancel@_StructuredTaskCollection@details@Concurrency@@QAAXXZ(ptr) _StructuredTaskCollection__Cancel
 @ thiscall -arch=i386 ?_Cancel@_StructuredTaskCollection@details@Concurrency@@QAEXXZ(ptr) _StructuredTaskCollection__Cancel

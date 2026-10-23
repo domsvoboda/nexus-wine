@@ -355,6 +355,102 @@ void __thiscall _Concurrent_queue_base_v4_dummy(_Concurrent_queue_base_v4 *this)
 
 DEFINE_RTTI_DATA(_Concurrent_queue_base_v4, 0, ".?AV_Concurrent_queue_base_v4@details@Concurrency@@")
 
+typedef struct
+{
+    size_t pos;
+    const _Concurrent_queue_base_v4 *queue;
+    _Page *pages[QUEUES_NO];
+} queue_iterator_data;
+
+typedef struct
+{
+    queue_iterator_data *data;
+    void *value;
+} _Concurrent_queue_iterator_base_v4;
+
+static void queue_iterator_update(_Concurrent_queue_iterator_base_v4 *this)
+{
+    const _Concurrent_queue_base_v4 *queue = this->data->queue;
+    size_t pos = this->data->pos;
+
+    if(pos == queue->data->tail_pos)
+        this->value = NULL;
+    else
+        this->value = this->data->pages[pos % QUEUES_NO]->data
+                + ((pos / QUEUES_NO) & (queue->alloc_count - 1)) * queue->item_size;
+}
+
+/* ??0_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAE@ABV_Concurrent_queue_base_v4@12@@Z */
+/* ??0_Concurrent_queue_iterator_base_v4@details@Concurrency@@IEAA@AEBV_Concurrent_queue_base_v4@12@@Z */
+DEFINE_THISCALL_WRAPPER(_Concurrent_queue_iterator_base_v4_ctor, 8)
+_Concurrent_queue_iterator_base_v4* __thiscall _Concurrent_queue_iterator_base_v4_ctor(
+        _Concurrent_queue_iterator_base_v4 *this, const _Concurrent_queue_base_v4 *queue)
+{
+    unsigned int i;
+
+    TRACE("(%p %p)\n", this, queue);
+
+    this->data = operator_new(sizeof(*this->data));
+    this->data->pos = queue->data->head_pos;
+    this->data->queue = queue;
+    for(i = 0; i < QUEUES_NO; ++i)
+        this->data->pages[i] = queue->data->queues[i].head;
+    queue_iterator_update(this);
+    return this;
+}
+
+/* ??1_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAE@XZ */
+/* ??1_Concurrent_queue_iterator_base_v4@details@Concurrency@@IEAA@XZ */
+DEFINE_THISCALL_WRAPPER(_Concurrent_queue_iterator_base_v4_dtor, 4)
+void __thiscall _Concurrent_queue_iterator_base_v4_dtor(_Concurrent_queue_iterator_base_v4 *this)
+{
+    TRACE("(%p)\n", this);
+
+    operator_delete(this->data);
+    this->data = NULL;
+}
+
+/* ?_Assign@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAEXABV123@@Z */
+/* ?_Assign@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IEAAXAEBV123@@Z */
+DEFINE_THISCALL_WRAPPER(_Concurrent_queue_iterator_base_v4__Assign, 8)
+void __thiscall _Concurrent_queue_iterator_base_v4__Assign(
+        _Concurrent_queue_iterator_base_v4 *this, const _Concurrent_queue_iterator_base_v4 *other)
+{
+    queue_iterator_data *copy = NULL;
+
+    TRACE("(%p %p)\n", this, other);
+
+    if(this->data != other->data)
+    {
+        if(other->data)
+        {
+            copy = operator_new(sizeof(*copy));
+            *copy = *other->data;
+        }
+        operator_delete(this->data);
+        this->data = copy;
+    }
+    this->value = other->value;
+}
+
+/* ?_Advance@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAEXXZ */
+/* ?_Advance@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IEAAXXZ */
+DEFINE_THISCALL_WRAPPER(_Concurrent_queue_iterator_base_v4__Advance, 4)
+void __thiscall _Concurrent_queue_iterator_base_v4__Advance(_Concurrent_queue_iterator_base_v4 *this)
+{
+    queue_iterator_data *data = this->data;
+    size_t pos = data->pos;
+
+    TRACE("(%p)\n", this);
+
+    /* Like unsafe_begin/unsafe_end, traversal must not race with queue writes.
+     * Keep only private page cursors; advancing never consumes queue items. */
+    if((pos / QUEUES_NO & (data->queue->alloc_count - 1)) == data->queue->alloc_count - 1)
+        data->pages[pos % QUEUES_NO] = data->pages[pos % QUEUES_NO]->_Next;
+    ++data->pos;
+    queue_iterator_update(this);
+}
+
 static LONG _Runtime_object_id;
 
 typedef struct
