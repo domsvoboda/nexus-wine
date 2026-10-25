@@ -17,7 +17,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#define WIDL_using_Windows_System
 #include "private.h"
+#include "appmodel.h"
 #include "wine/debug.h"
 
 #include "pathcch.h"
@@ -373,10 +375,171 @@ static const struct IStorageItemVtbl storage_item_vtbl =
     storage_item_IsOfType,
 };
 
+struct package_id
+{
+    IPackageId IPackageId_iface;
+    LONG ref;
+    PACKAGE_ID *identity;
+    WCHAR *full_name, *family_name;
+};
+
+static inline struct package_id *impl_from_IPackageId( IPackageId *iface )
+{
+    return CONTAINING_RECORD( iface, struct package_id, IPackageId_iface );
+}
+
+static HRESULT WINAPI package_id_QueryInterface( IPackageId *iface, REFIID iid, void **out )
+{
+    if (!out) return E_POINTER;
+    *out = NULL;
+    if (IsEqualGUID( iid, &IID_IUnknown ) || IsEqualGUID( iid, &IID_IInspectable ) ||
+        IsEqualGUID( iid, &IID_IAgileObject ) || IsEqualGUID( iid, &IID_IPackageId ))
+    {
+        *out = iface;
+        IPackageId_AddRef( iface );
+        return S_OK;
+    }
+    return E_NOINTERFACE;
+}
+
+static ULONG WINAPI package_id_AddRef( IPackageId *iface )
+{
+    return InterlockedIncrement( &impl_from_IPackageId( iface )->ref );
+}
+
+static ULONG WINAPI package_id_Release( IPackageId *iface )
+{
+    struct package_id *impl = impl_from_IPackageId( iface );
+    ULONG ref = InterlockedDecrement( &impl->ref );
+    if (!ref)
+    {
+        free( impl->identity );
+        free( impl->full_name );
+        free( impl->family_name );
+        free( impl );
+    }
+    return ref;
+}
+
+static HRESULT WINAPI package_id_GetIids( IPackageId *iface, ULONG *count, IID **iids )
+{
+    if (count) *count = 0;
+    if (iids) *iids = NULL;
+    if (!count || !iids) return E_INVALIDARG;
+    if (!(*iids = CoTaskMemAlloc( sizeof(**iids) ))) return E_OUTOFMEMORY;
+    **iids = IID_IPackageId;
+    *count = 1;
+    return S_OK;
+}
+
+static HRESULT WINAPI package_id_GetRuntimeClassName( IPackageId *iface, HSTRING *value )
+{
+    static const WCHAR name[] = L"Windows.ApplicationModel.PackageId";
+    if (!value) return E_INVALIDARG;
+    *value = NULL;
+    return WindowsCreateString( name, ARRAY_SIZE(name) - 1, value );
+}
+
+static HRESULT WINAPI package_id_GetTrustLevel( IPackageId *iface, TrustLevel *value )
+{
+    if (!value) return E_INVALIDARG;
+    *value = BaseTrust;
+    return S_OK;
+}
+
+#define PACKAGE_ID_STRING_GETTER(name, field) \
+static HRESULT WINAPI package_id_get_##name( IPackageId *iface, HSTRING *value ) \
+{ \
+    struct package_id *impl = impl_from_IPackageId( iface ); \
+    if (!value) return E_INVALIDARG; \
+    *value = NULL; \
+    return WindowsCreateString( impl->field, wcslen(impl->field), value ); \
+}
+
+PACKAGE_ID_STRING_GETTER(Name, identity->name)
+PACKAGE_ID_STRING_GETTER(ResourceId, identity->resourceId)
+PACKAGE_ID_STRING_GETTER(Publisher, identity->publisher)
+PACKAGE_ID_STRING_GETTER(PublisherId, identity->publisherId)
+PACKAGE_ID_STRING_GETTER(FullName, full_name)
+PACKAGE_ID_STRING_GETTER(FamilyName, family_name)
+#undef PACKAGE_ID_STRING_GETTER
+
+static HRESULT WINAPI package_id_get_Version( IPackageId *iface, PackageVersion *value )
+{
+    const PACKAGE_VERSION *version = &impl_from_IPackageId( iface )->identity->version;
+    if (!value) return E_INVALIDARG;
+    value->Major = version->Major;
+    value->Minor = version->Minor;
+    value->Build = version->Build;
+    value->Revision = version->Revision;
+    return S_OK;
+}
+
+static HRESULT WINAPI package_id_get_Architecture( IPackageId *iface, ProcessorArchitecture *value )
+{
+    if (!value) return E_INVALIDARG;
+    *value = impl_from_IPackageId( iface )->identity->processorArchitecture;
+    return S_OK;
+}
+
+static const struct IPackageIdVtbl package_id_vtbl =
+{
+    package_id_QueryInterface,
+    package_id_AddRef,
+    package_id_Release,
+    package_id_GetIids,
+    package_id_GetRuntimeClassName,
+    package_id_GetTrustLevel,
+    package_id_get_Name,
+    package_id_get_Version,
+    package_id_get_Architecture,
+    package_id_get_ResourceId,
+    package_id_get_Publisher,
+    package_id_get_PublisherId,
+    package_id_get_FullName,
+    package_id_get_FamilyName,
+};
+
+static HRESULT package_id_create( IPackageId **out )
+{
+    struct package_id *impl;
+    UINT32 id_size = 0, full_size = 0, family_size = 0;
+    LONG error;
+
+    *out = NULL;
+    if ((error = GetCurrentPackageId( &id_size, NULL )) != ERROR_INSUFFICIENT_BUFFER)
+        return error ? HRESULT_FROM_WIN32(error) : E_UNEXPECTED;
+    if ((error = GetCurrentPackageFullName( &full_size, NULL )) != ERROR_INSUFFICIENT_BUFFER)
+        return error ? HRESULT_FROM_WIN32(error) : E_UNEXPECTED;
+    if ((error = GetCurrentPackageFamilyName( &family_size, NULL )) != ERROR_INSUFFICIENT_BUFFER)
+        return error ? HRESULT_FROM_WIN32(error) : E_UNEXPECTED;
+    if (!(impl = calloc( 1, sizeof(*impl) ))) return E_OUTOFMEMORY;
+    impl->IPackageId_iface.lpVtbl = &package_id_vtbl;
+    impl->ref = 1;
+    if (!(impl->identity = malloc(id_size)) || !(impl->full_name = calloc(full_size, sizeof(WCHAR))) ||
+        !(impl->family_name = calloc(family_size, sizeof(WCHAR))))
+    {
+        IPackageId_Release( &impl->IPackageId_iface );
+        return E_OUTOFMEMORY;
+    }
+    /* Use the current process's real package snapshot, not its working
+     * directory, environment hints or guessed Store/account information. */
+    if ((error = GetCurrentPackageId( &id_size, (BYTE *)impl->identity )) ||
+        (error = GetCurrentPackageFullName( &full_size, impl->full_name )) ||
+        (error = GetCurrentPackageFamilyName( &family_size, impl->family_name )))
+    {
+        IPackageId_Release( &impl->IPackageId_iface );
+        return HRESULT_FROM_WIN32(error);
+    }
+    *out = &impl->IPackageId_iface;
+    return S_OK;
+}
+
 struct package
 {
     IPackage IPackage_iface;
     LONG ref;
+    IPackageId *id;
 };
 
 static inline struct package *impl_from_IPackage( IPackage *iface )
@@ -420,7 +583,11 @@ static ULONG WINAPI package_Release( IPackage *iface )
 
     TRACE( "iface %p decreasing refcount to %lu.\n", iface, ref );
 
-    if (!ref) free( impl );
+    if (!ref)
+    {
+        IPackageId_Release( impl->id );
+        free( impl );
+    }
     return ref;
 }
 
@@ -444,8 +611,10 @@ static HRESULT WINAPI package_GetTrustLevel( IPackage *iface, TrustLevel *trust_
 
 static HRESULT WINAPI package_get_Id( IPackage *iface, IPackageId **value )
 {
-    FIXME( "iface %p, value %p stub!\n", iface, value );
-    return E_NOTIMPL;
+    if (!value) return E_INVALIDARG;
+    *value = impl_from_IPackage( iface )->id;
+    IPackageId_AddRef( *value );
+    return S_OK;
 }
 
 static HRESULT WINAPI package_get_InstalledLocation( IPackage *iface, IStorageFolder **value )
@@ -499,14 +668,23 @@ DEFINE_IINSPECTABLE( package_statics, IPackageStatics, struct package_statics, I
 static HRESULT WINAPI package_statics_get_Current( IPackageStatics *iface, IPackage **value )
 {
     struct package *impl;
+    IPackageId *id;
+    HRESULT hr;
 
     TRACE( "iface %p, value %p\n", iface, value );
 
     if (!value) return E_INVALIDARG;
-    if (!(impl = calloc( 1, sizeof(*impl) ))) return E_OUTOFMEMORY;
+    *value = NULL;
+    if (FAILED(hr = package_id_create( &id ))) return hr;
+    if (!(impl = calloc( 1, sizeof(*impl) )))
+    {
+        IPackageId_Release( id );
+        return E_OUTOFMEMORY;
+    }
 
     impl->IPackage_iface.lpVtbl = &package_vtbl;
     impl->ref = 1;
+    impl->id = id;
 
     *value = &impl->IPackage_iface;
     TRACE( "created IPackage %p.\n", *value );

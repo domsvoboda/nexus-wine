@@ -3,6 +3,9 @@
   "base": "7fc704ef49c50e9702c9983a5250d5738697bb04",
   "xgameruntime": "eb60d61ab878373e2d5310fbafe64403befcc26c",
   "files": {
+    "include/appmodel.h": "100a625c8f1c3f1816d461deada33c4ec83c989cec6670f950448459641bcb7a",
+    "dlls/windows.applicationmodel/package.c": "4ef575fc97a475273fc9caf190d70c4e0cacdeee51a818a11fbeecfd5c446d95",
+    "dlls/windows.applicationmodel/tests/model.c": "4b2218a627e80191810ddc390a3d2d74dc093d5f1e9132680edaeaca971985bc",
     "configure.ac": "287d498788b45ffcfa49312c2b03da069056ee9acf10ba20b13a11ca508700e8",
     "dlls/advapi32/cred.c": "993bc2bf27d2797da7f11b026b1bf1bfb8abf37ca75334a801a55627c4eced62",
     "dlls/bcrypt/gnutls.c": "3ae97eeb5eaf0a474d081e1089a3c958c8c0fc0062379312394dcf5d76661dab",
