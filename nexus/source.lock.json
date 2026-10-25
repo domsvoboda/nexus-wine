@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "base": "7fc704ef49c50e9702c9983a5250d5738697bb04",
-  "xgameruntime": "6d7999fa9ffe4d1bb125876aa6e021e342b7a84f",
+  "xgameruntime": "d229c4833608b64f0d5afa92d80bde3c36614a3e",
   "files": {
     "include/appmodel.h": "100a625c8f1c3f1816d461deada33c4ec83c989cec6670f950448459641bcb7a",
     "dlls/windows.applicationmodel/package.c": "4ef575fc97a475273fc9caf190d70c4e0cacdeee51a818a11fbeecfd5c446d95",
