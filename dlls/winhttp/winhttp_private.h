@@ -46,6 +46,7 @@ struct object_header
     DWORD logon_policy;
     DWORD redirect_policy;
     DWORD error;
+    DWORD decompression;
     DWORD_PTR context;
     LONG refs;
     WINHTTP_STATUS_CALLBACK callback;
@@ -84,6 +85,7 @@ struct session
     struct list cookie_cache;
     HANDLE unload_event;
     DWORD secure_protocols;
+    DWORD http_protocols;
     DWORD passport_flags;
     unsigned int websocket_receive_buffer_size;
     unsigned int websocket_send_buffer_size;
@@ -110,6 +112,9 @@ struct netconn
     int socket;
     struct sockaddr_storage sockaddr;
     BOOL secure; /* SSL active on connection? */
+    BOOL http2;
+    DWORD http_protocols;
+    struct http2_connection *http2_state;
     struct hostdata *host;
     ULONGLONG keep_until;
     CtxtHandle ssl_ctx;
@@ -188,6 +193,34 @@ enum request_response_state
     REQUEST_RESPONSE_STATE_RESPONSE_RECEIVED,
 };
 
+#define READ_BUFFER_SIZE 8192
+
+struct data_stream;
+struct request;
+
+struct data_stream_vtbl
+{
+    DWORD (*query_data)( struct data_stream *, struct request * );
+    BOOL  (*end_of_data)( struct data_stream *, struct request * );
+    DWORD (*read_data)( struct data_stream *, struct request *, char *, DWORD, DWORD * );
+    DWORD (*drain_data)( struct data_stream *, struct request * );
+    void  (*destroy)( struct data_stream * );
+};
+
+struct data_stream
+{
+    const struct data_stream_vtbl *vtbl;
+};
+
+struct netconn_stream
+{
+    struct data_stream data_stream;
+    UINT64 content_length;
+    UINT64 content_read;
+};
+
+extern const struct data_stream_vtbl netconn_stream_vtbl;
+
 struct request
 {
     struct object_header hdr;
@@ -216,12 +249,11 @@ struct request
     WCHAR *status_text;
     UINT64 content_length; /* total number of bytes to be read */
     UINT64 content_read;   /* bytes read so far */
-    BOOL  read_chunked;   /* are we reading in chunked mode? */
-    BOOL  read_chunked_eof;  /* end of stream in chunked mode */
-    BOOL  read_chunked_size; /* chunk size remaining */
     DWORD read_pos;       /* current read position in read_buf */
     DWORD read_size;      /* valid data size in read_buf */
-    char  read_buf[8192]; /* buffer for already read but not returned data */
+    char  read_buf[READ_BUFFER_SIZE]; /* buffer for already read but not returned data */
+    struct data_stream *data_stream;
+    struct netconn_stream netconn_stream;
     struct header *headers;
     DWORD num_headers;
     struct authinfo *authinfo;
@@ -237,6 +269,8 @@ struct request
     int read_reply_len;
     DWORD read_reply_status;
     enum request_response_state state;
+    DWORD http_protocols, http_protocol_used;
+    LONG cancelled;
 };
 
 enum socket_state
@@ -275,6 +309,7 @@ struct socket
     struct object_header hdr;
     struct netconn *netconn;
     int keepalive_interval;
+    int close_timeout;
     unsigned int send_buffer_size;
     enum socket_state state;
     struct queue send_q;
@@ -410,12 +445,13 @@ void netconn_unload( void );
 ULONG netconn_query_data_available( struct netconn * );
 DWORD netconn_recv( struct netconn *, void *, size_t, int, int * );
 DWORD netconn_resolve( WCHAR *, INTERNET_PORT, struct sockaddr_storage *, int );
-DWORD netconn_secure_connect( struct netconn *, WCHAR *, DWORD, CredHandle *, BOOL );
+DWORD netconn_secure_connect( struct netconn *, WCHAR *, DWORD, CredHandle *, BOOL, BOOL );
 DWORD netconn_send( struct netconn *, const void *, size_t, int *, WSAOVERLAPPED * );
 BOOL netconn_wait_overlapped_result( struct netconn *conn, WSAOVERLAPPED *ovr, DWORD *len );
 void netconn_cancel_io( struct netconn *conn );
 DWORD netconn_set_timeout( struct netconn *, BOOL, int );
 BOOL netconn_is_alive( struct netconn * );
+BOOL netconn_is_valid( struct netconn * );
 const void *netconn_get_certificate( struct netconn * );
 int netconn_get_cipher_strength( struct netconn * );
 
@@ -425,9 +461,17 @@ DWORD add_request_headers( struct request *, const WCHAR *, DWORD, DWORD );
 void destroy_cookies( struct session * );
 BOOL set_server_for_hostname( struct connect *, const WCHAR *, INTERNET_PORT );
 void destroy_authinfo( struct authinfo * );
+void destroy_data_stream( struct data_stream * );
 
 void release_host( struct hostdata * );
 DWORD process_header( struct request *, const WCHAR *, const WCHAR *, DWORD, BOOL );
+
+void http2_destroy( struct netconn * );
+DWORD http2_send_request( struct request *, const char *, void *, DWORD, UINT64 );
+DWORD http2_read_reply( struct request * );
+DWORD http2_read_data( struct netconn *, void *, DWORD, int * );
+DWORD http2_write_data( struct netconn *, const void *, DWORD, int * );
+DWORD http2_available( struct netconn * );
 
 extern HRESULT WinHttpRequest_create( void ** );
 void release_typelib( void );

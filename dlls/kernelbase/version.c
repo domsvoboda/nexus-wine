@@ -1576,13 +1576,16 @@ BOOL WINAPI GetVersionExW( OSVERSIONINFOW *info )
     return TRUE;
 }
 
+static UINT32 processor_arch_from_string(const WCHAR *, unsigned int);
+const WCHAR *string_from_processor_arch(UINT32);
+#include "appmodel-identity.h"
+
 /***********************************************************************
  *         GetCurrentApplicationUserModelId   (kernelbase.@)
  */
 LONG WINAPI /* DECLSPEC_HOTPATCH */ GetCurrentApplicationUserModelId( UINT32 *length, WCHAR *id )
 {
-    FIXME( "(%p %p): stub\n", length, id );
-    return APPMODEL_ERROR_NO_APPLICATION;
+    return package_current_string( 3, length, id );
 }
 
 /***********************************************************************
@@ -1590,8 +1593,7 @@ LONG WINAPI /* DECLSPEC_HOTPATCH */ GetCurrentApplicationUserModelId( UINT32 *le
  */
 LONG WINAPI /* DECLSPEC_HOTPATCH */ GetCurrentPackageFamilyName( UINT32 *length, WCHAR *name )
 {
-    FIXME( "(%p %p): stub\n", length, name );
-    return APPMODEL_ERROR_NO_PACKAGE;
+    return package_current_string( 1, length, name );
 }
 
 
@@ -1600,8 +1602,7 @@ LONG WINAPI /* DECLSPEC_HOTPATCH */ GetCurrentPackageFamilyName( UINT32 *length,
  */
 LONG WINAPI /* DECLSPEC_HOTPATCH */ GetCurrentPackageFullName( UINT32 *length, WCHAR *name )
 {
-    FIXME( "(%p %p): stub\n", length, name );
-    return APPMODEL_ERROR_NO_PACKAGE;
+    return package_current_string( 0, length, name );
 }
 
 
@@ -1610,8 +1611,7 @@ LONG WINAPI /* DECLSPEC_HOTPATCH */ GetCurrentPackageFullName( UINT32 *length, W
  */
 LONG WINAPI /* DECLSPEC_HOTPATCH */ GetCurrentPackageId( UINT32 *len, BYTE *buffer )
 {
-    FIXME( "(%p %p): stub\n", len, buffer );
-    return APPMODEL_ERROR_NO_PACKAGE;
+    return package_current_id( len, buffer );
 }
 
 /***********************************************************************
@@ -1619,8 +1619,7 @@ LONG WINAPI /* DECLSPEC_HOTPATCH */ GetCurrentPackageId( UINT32 *len, BYTE *buff
  */
 LONG WINAPI GetCurrentPackageInfo( const UINT32 flags, UINT32 *buffer_size, BYTE *buffer, UINT32 *count )
 {
-    FIXME( "(%#x %p %p %p): stub\n", flags, buffer_size, buffer, count );
-    return APPMODEL_ERROR_NO_PACKAGE;
+    return package_current_info( flags, buffer_size, buffer, count );
 }
 
 /***********************************************************************
@@ -1628,8 +1627,7 @@ LONG WINAPI GetCurrentPackageInfo( const UINT32 flags, UINT32 *buffer_size, BYTE
  */
 LONG WINAPI /* DECLSPEC_HOTPATCH */ GetCurrentPackagePath( UINT32 *length, WCHAR *path )
 {
-    FIXME( "(%p %p): stub\n", length, path );
-    return APPMODEL_ERROR_NO_PACKAGE;
+    return package_current_string( 2, length, path );
 }
 
 

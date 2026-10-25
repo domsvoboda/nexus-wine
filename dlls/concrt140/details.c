@@ -355,6 +355,102 @@ void __thiscall _Concurrent_queue_base_v4_dummy(_Concurrent_queue_base_v4 *this)
 
 DEFINE_RTTI_DATA(_Concurrent_queue_base_v4, 0, ".?AV_Concurrent_queue_base_v4@details@Concurrency@@")
 
+typedef struct
+{
+    size_t pos;
+    const _Concurrent_queue_base_v4 *queue;
+    _Page *pages[QUEUES_NO];
+} queue_iterator_data;
+
+typedef struct
+{
+    queue_iterator_data *data;
+    void *value;
+} _Concurrent_queue_iterator_base_v4;
+
+static void queue_iterator_update(_Concurrent_queue_iterator_base_v4 *this)
+{
+    const _Concurrent_queue_base_v4 *queue = this->data->queue;
+    size_t pos = this->data->pos;
+
+    if(pos == queue->data->tail_pos)
+        this->value = NULL;
+    else
+        this->value = this->data->pages[pos % QUEUES_NO]->data
+                + ((pos / QUEUES_NO) & (queue->alloc_count - 1)) * queue->item_size;
+}
+
+/* ??0_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAE@ABV_Concurrent_queue_base_v4@12@@Z */
+/* ??0_Concurrent_queue_iterator_base_v4@details@Concurrency@@IEAA@AEBV_Concurrent_queue_base_v4@12@@Z */
+DEFINE_THISCALL_WRAPPER(_Concurrent_queue_iterator_base_v4_ctor, 8)
+_Concurrent_queue_iterator_base_v4* __thiscall _Concurrent_queue_iterator_base_v4_ctor(
+        _Concurrent_queue_iterator_base_v4 *this, const _Concurrent_queue_base_v4 *queue)
+{
+    unsigned int i;
+
+    TRACE("(%p %p)\n", this, queue);
+
+    this->data = operator_new(sizeof(*this->data));
+    this->data->pos = queue->data->head_pos;
+    this->data->queue = queue;
+    for(i = 0; i < QUEUES_NO; ++i)
+        this->data->pages[i] = queue->data->queues[i].head;
+    queue_iterator_update(this);
+    return this;
+}
+
+/* ??1_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAE@XZ */
+/* ??1_Concurrent_queue_iterator_base_v4@details@Concurrency@@IEAA@XZ */
+DEFINE_THISCALL_WRAPPER(_Concurrent_queue_iterator_base_v4_dtor, 4)
+void __thiscall _Concurrent_queue_iterator_base_v4_dtor(_Concurrent_queue_iterator_base_v4 *this)
+{
+    TRACE("(%p)\n", this);
+
+    operator_delete(this->data);
+    this->data = NULL;
+}
+
+/* ?_Assign@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAEXABV123@@Z */
+/* ?_Assign@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IEAAXAEBV123@@Z */
+DEFINE_THISCALL_WRAPPER(_Concurrent_queue_iterator_base_v4__Assign, 8)
+void __thiscall _Concurrent_queue_iterator_base_v4__Assign(
+        _Concurrent_queue_iterator_base_v4 *this, const _Concurrent_queue_iterator_base_v4 *other)
+{
+    queue_iterator_data *copy = NULL;
+
+    TRACE("(%p %p)\n", this, other);
+
+    if(this->data != other->data)
+    {
+        if(other->data)
+        {
+            copy = operator_new(sizeof(*copy));
+            *copy = *other->data;
+        }
+        operator_delete(this->data);
+        this->data = copy;
+    }
+    this->value = other->value;
+}
+
+/* ?_Advance@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IAEXXZ */
+/* ?_Advance@_Concurrent_queue_iterator_base_v4@details@Concurrency@@IEAAXXZ */
+DEFINE_THISCALL_WRAPPER(_Concurrent_queue_iterator_base_v4__Advance, 4)
+void __thiscall _Concurrent_queue_iterator_base_v4__Advance(_Concurrent_queue_iterator_base_v4 *this)
+{
+    queue_iterator_data *data = this->data;
+    size_t pos = data->pos;
+
+    TRACE("(%p)\n", this);
+
+    /* Like unsafe_begin/unsafe_end, traversal must not race with queue writes.
+     * Keep only private page cursors; advancing never consumes queue items. */
+    if((pos / QUEUES_NO & (data->queue->alloc_count - 1)) == data->queue->alloc_count - 1)
+        data->pages[pos % QUEUES_NO] = data->pages[pos % QUEUES_NO]->_Next;
+    ++data->pos;
+    queue_iterator_update(this);
+}
+
 static LONG _Runtime_object_id;
 
 typedef struct
@@ -483,12 +579,11 @@ static void concurrent_vector_alloc_segment(_Concurrent_vector_base_v4 *this,
             __TRY
             {
                 if(seg == 0)
-                    this->segment[seg] = this->allocator(this, element_size * (1 << this->first_block));
+                    this->segment[seg] = this->allocator(this, 1 << this->first_block);
                 else if(seg < this->first_block)
-                    this->segment[seg] = (BYTE**)this->segment[0]
-                        + element_size * (1 << seg);
+                    this->segment[seg] = (BYTE *)this->segment[0] + element_size * (1 << seg);
                 else
-                    this->segment[seg] = this->allocator(this, element_size * (1 << seg));
+                    this->segment[seg] = this->allocator(this, 1 << seg);
             }
             __EXCEPT_ALL
             {
@@ -528,7 +623,7 @@ size_t __thiscall _Concurrent_vector_base_v4__Internal_capacity(
     last_block = (this->segment == this->storage ? STORAGE_SIZE : SEGMENT_SIZE);
     for(i = 0; i < last_block; i++)
     {
-        if(!this->segment[i])
+        if(!this->segment[i] || this->segment[i] == SEGMENT_ALLOC_MARKER)
             return !i ? 0 : 1 << i;
     }
     return 1 << i;
@@ -714,7 +809,7 @@ void __thiscall _Concurrent_vector_base_v4__Internal_assign(
     if(this->early_size > v_size)
     {
         if((i ? 1 << i : 2) - remain_element > 0)
-            clear((BYTE**)this->segment[i] + element_size * remain_element,
+            clear((BYTE*)this->segment[i] + element_size * remain_element,
                     (i ? 1 << i : 2) - remain_element);
         if(i < seg_no)
         {
@@ -726,8 +821,8 @@ void __thiscall _Concurrent_vector_base_v4__Internal_assign(
     else if(this->early_size < v_size)
     {
         if((i ? 1 << i : 2) - remain_element > 0)
-            copy((BYTE**)this->segment[i] + element_size * remain_element,
-                    (BYTE**)v->segment[i] + element_size * remain_element,
+            copy((BYTE*)this->segment[i] + element_size * remain_element,
+                    (BYTE*)v->segment[i] + element_size * remain_element,
                     (i ? 1 << i : 2) - remain_element);
         if(i < v_seg_no)
         {
@@ -763,7 +858,7 @@ size_t __thiscall _Concurrent_vector_base_v4__Internal_grow_by(
     last_seg_no = _vector_base_v4__Segment_index_of(size + count - 1);
     remain_size = min(size + count, 1 << (seg_no + 1)) - size;
     if(remain_size > 0)
-        copy(((BYTE**)this->segment[seg_no] + element_size * (size - ((1 << seg_no) & ~1))), v,
+        copy(((BYTE*)this->segment[seg_no] + element_size * (size - ((1 << seg_no) & ~1))), v,
             remain_size);
     if(seg_no != last_seg_no)
     {
@@ -796,7 +891,7 @@ size_t __thiscall _Concurrent_vector_base_v4__Internal_grow_to_at_least_with_res
     last_seg_no = _vector_base_v4__Segment_index_of(count - 1);
     remain_size = min(count, 1 << (seg_no + 1)) - size;
     if(remain_size > 0)
-        copy(((BYTE**)this->segment[seg_no] + element_size * (size - ((1 << seg_no) & ~1))), v,
+        copy(((BYTE*)this->segment[seg_no] + element_size * (size - ((1 << seg_no) & ~1))), v,
             remain_size);
     if(seg_no != last_seg_no)
     {
@@ -862,7 +957,7 @@ void __thiscall _Concurrent_vector_base_v4__Internal_resize(
             clear(this->segment[seg_no], 1 << seg_no);
         clear_element = (1 << (end_seg_no + 1)) - resize;
         if(clear_element > 0)
-            clear((BYTE**)this->segment[end_seg_no] + element_size * (resize - ((1 << end_seg_no) & ~1)),
+            clear((BYTE*)this->segment[end_seg_no] + element_size * (resize - ((1 << end_seg_no) & ~1)),
                     clear_element);
         this->early_size = resize;
     }
