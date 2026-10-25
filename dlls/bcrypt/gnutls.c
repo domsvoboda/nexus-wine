@@ -2788,7 +2788,10 @@ static NTSTATUS key_asymmetric_sign( void *args )
 
     if (!params->output)
     {
-        *params->ret_len = len_from_bitlen( key->u.a.bitlen );
+        if (key->alg_id == ALG_ID_RSA || key->alg_id == ALG_ID_RSA_SIGN)
+            *params->ret_len = len_from_bitlen( key->u.a.bitlen );
+        else
+            *params->ret_len = get_signature_length( key->alg_id );
         return STATUS_SUCCESS;
     }
     if (!key_data(key)->a.privkey) return STATUS_INVALID_PARAMETER;
