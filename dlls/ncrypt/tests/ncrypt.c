@@ -829,6 +829,79 @@ static void test_NCryptExportKey(void)
     NCryptFreeObject(prov);
 }
 
+static void test_ecdsa_p256(void)
+{
+    NCRYPT_PROV_HANDLE provider = 0;
+    NCRYPT_KEY_HANDLE key = 0;
+    BCRYPT_ALG_HANDLE algorithm = NULL;
+    BCRYPT_KEY_HANDLE public_key = NULL;
+    BYTE hash[32] = {0}, signature[64], blob[128];
+    DWORD size, bits;
+    SECURITY_STATUS ret;
+    NTSTATUS status;
+
+    ret = NCryptOpenStorageProvider(&provider, L"Microsoft Software Key Storage Provider", 0);
+    ok(ret == ERROR_SUCCESS, "Open provider returned %#lx\n", ret);
+    if (ret) return;
+
+    /* A NULL name deliberately requests an ephemeral key, not persistence. */
+    ret = NCryptCreatePersistedKey(provider, &key, BCRYPT_ECDSA_P256_ALGORITHM, NULL, 0, 0);
+    ok(ret == ERROR_SUCCESS, "Create ECDSA P-256 key returned %#lx\n", ret);
+    if (ret) goto done;
+    bits = size = 0;
+    ret = NCryptGetProperty(key, NCRYPT_LENGTH_PROPERTY, (BYTE *)&bits, sizeof(bits), &size, 0);
+    ok(ret == ERROR_SUCCESS, "Get length returned %#lx\n", ret);
+    ok(size == sizeof(bits) && bits == 256, "Unexpected length %lu, size %lu\n", bits, size);
+    ret = NCryptFinalizeKey(key, 0);
+    ok(ret == ERROR_SUCCESS, "Finalize ECDSA key returned %#lx\n", ret);
+    if (ret) goto done;
+
+    size = 0;
+    ret = NCryptSignHash(key, NULL, hash, sizeof(hash), NULL, 0, &size, 0);
+    ok(ret == ERROR_SUCCESS, "Query signature length returned %#lx\n", ret);
+    ok(size == sizeof(signature), "Unexpected signature size %lu\n", size);
+    ret = NCryptSignHash(key, NULL, hash, sizeof(hash), signature, 1, &size, 0);
+    ok(ret == NTE_BUFFER_TOO_SMALL, "Short signature buffer returned %#lx\n", ret);
+    ret = NCryptSignHash(key, NULL, hash, sizeof(hash), signature, sizeof(signature), &size, 0);
+    ok(ret == ERROR_SUCCESS, "Sign returned %#lx\n", ret);
+    ok(size == sizeof(signature), "Unexpected written signature size %lu\n", size);
+    if (ret) goto done;
+    ret = NCryptVerifySignature(key, NULL, hash, sizeof(hash), signature, size, 0);
+    ok(ret == ERROR_SUCCESS, "Verify returned %#lx\n", ret);
+    hash[0] ^= 1;
+    ret = NCryptVerifySignature(key, NULL, hash, sizeof(hash), signature, size, 0);
+    ok(ret == NTE_BAD_SIGNATURE, "Modified hash returned %#lx\n", ret);
+    hash[0] ^= 1;
+    signature[0] ^= 1;
+    ret = NCryptVerifySignature(key, NULL, hash, sizeof(hash), signature, size, 0);
+    ok(ret == NTE_BAD_SIGNATURE, "Modified signature returned %#lx\n", ret);
+    signature[0] ^= 1;
+
+    size = 0;
+    ret = NCryptExportKey(key, 0, BCRYPT_ECCPUBLIC_BLOB, NULL, blob, sizeof(blob), &size, 0);
+    ok(ret == ERROR_SUCCESS, "Export public key returned %#lx\n", ret);
+    ok(size == sizeof(BCRYPT_ECCKEY_BLOB) + 64, "Unexpected public blob size %lu\n", size);
+    if (ret) goto done;
+    ok(((BCRYPT_ECCKEY_BLOB *)blob)->dwMagic == BCRYPT_ECDSA_PUBLIC_P256_MAGIC,
+       "Unexpected public blob magic %#lx\n", ((BCRYPT_ECCKEY_BLOB *)blob)->dwMagic);
+    ok(((BCRYPT_ECCKEY_BLOB *)blob)->cbKey == 32, "Unexpected coordinate size %lu\n",
+       ((BCRYPT_ECCKEY_BLOB *)blob)->cbKey);
+    status = BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_ECDSA_P256_ALGORITHM, NULL, 0);
+    ok(!status, "Open BCrypt provider returned %#lx\n", status);
+    if (status) goto done;
+    status = BCryptImportKeyPair(algorithm, NULL, BCRYPT_ECCPUBLIC_BLOB, &public_key, blob, size, 0);
+    ok(!status, "Import public key returned %#lx\n", status);
+    if (status) goto done;
+    status = BCryptVerifySignature(public_key, NULL, hash, sizeof(hash), signature, sizeof(signature), 0);
+    ok(!status, "Independent public-key verification returned %#lx\n", status);
+
+done:
+    if (public_key) BCryptDestroyKey(public_key);
+    if (algorithm) BCryptCloseAlgorithmProvider(algorithm, 0);
+    if (key) NCryptFreeObject(key);
+    NCryptFreeObject(provider);
+}
+
 START_TEST(ncrypt)
 {
     test_key_import_rsa();
@@ -841,4 +914,5 @@ START_TEST(ncrypt)
     test_NCryptIsAlgSupported();
     test_NCryptEncrypt();
     test_NCryptExportKey();
+    test_ecdsa_p256();
 }
