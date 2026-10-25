@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "base": "7fc704ef49c50e9702c9983a5250d5738697bb04",
-  "xgameruntime": "a6f151bccedd2bf53f2de3b96e7abdb1fff5db28",
+  "xgameruntime": "eb60d61ab878373e2d5310fbafe64403befcc26c",
   "files": {
     "configure.ac": "287d498788b45ffcfa49312c2b03da069056ee9acf10ba20b13a11ca508700e8",
     "dlls/advapi32/cred.c": "993bc2bf27d2797da7f11b026b1bf1bfb8abf37ca75334a801a55627c4eced62",
