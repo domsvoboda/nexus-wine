@@ -3857,6 +3857,11 @@ static void test_BCryptSignHash(void)
     memset(sig, 0, sizeof(sig));
     len = 0;
 
+    /* A size query must cover both ECDSA coordinates, just like the signature. */
+    ret = BCryptSignHash(key, NULL, hash, sizeof(hash), NULL, 0, &len, 0);
+    ok(!ret, "got %#lx\n", ret);
+    ok(len == 64, "got signature query length %lu\n", len);
+
     /* automatically detects padding info */
     ret = BCryptSignHash(key, NULL, hash, sizeof(hash), sig, sizeof(sig), &len, 0);
     ok (!ret, "got %#lx\n", ret);
@@ -3888,6 +3893,9 @@ static void test_BCryptSignHash(void)
     ok(ret == STATUS_SUCCESS, "got %#lx\n", ret);
     ret = BCryptFinalizeKeyPair(key, 0);
     ok(ret == STATUS_SUCCESS, "got %#lx\n", ret);
+    ret = BCryptSignHash(key, NULL, hash, sizeof(hash), NULL, 0, &len, 0);
+    ok(!ret, "got %#lx\n", ret);
+    ok(len == 132, "got signature query length %lu\n", len);
     len = 0;
     ret = BCryptSignHash(key, NULL, hash, sizeof(hash), sig, sizeof(sig), &len, 0);
     ok (!ret, "got %#lx\n", ret);
