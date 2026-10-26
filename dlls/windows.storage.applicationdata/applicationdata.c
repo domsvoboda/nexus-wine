@@ -118,6 +118,7 @@ static const struct IActivationFactoryVtbl factory_vtbl =
 struct application_data
 {
     IApplicationData IApplicationData_iface;
+    IApplicationData2 IApplicationData2_iface;
     LONG ref;
 };
 
@@ -132,6 +133,7 @@ static HRESULT WINAPI application_data_QueryInterface( IApplicationData *iface, 
 
     TRACE( "iface %p, iid %s, out %p.\n", iface, debugstr_guid( iid ), out );
 
+    if (!out) return E_POINTER;
     if (IsEqualGUID( iid, &IID_IUnknown ) ||
         IsEqualGUID( iid, &IID_IInspectable ) ||
         IsEqualGUID( iid, &IID_IAgileObject ) ||
@@ -139,6 +141,13 @@ static HRESULT WINAPI application_data_QueryInterface( IApplicationData *iface, 
     {
         *out = &impl->IApplicationData_iface;
         IInspectable_AddRef( *out );
+        return S_OK;
+    }
+
+    if (IsEqualGUID( iid, &IID_IApplicationData2 ))
+    {
+        *out = &impl->IApplicationData2_iface;
+        IApplicationData_AddRef( &impl->IApplicationData_iface );
         return S_OK;
     }
 
@@ -223,8 +232,8 @@ static HRESULT WINAPI application_data_get_RoamingSettings( IApplicationData *if
 
 static HRESULT WINAPI application_data_get_LocalFolder( IApplicationData *iface, IStorageFolder **value )
 {
-    FIXME( "iface %p, value %p stub!\n", iface, value );
-    return E_NOTIMPL;
+    TRACE( "iface %p, value %p.\n", iface, value );
+    return application_data_folder( L"LocalState", value );
 }
 
 static HRESULT WINAPI application_data_get_RoamingFolder( IApplicationData *iface, IStorageFolder **value )
@@ -291,6 +300,25 @@ static const struct IApplicationDataVtbl application_data_vtbl =
 
 DEFINE_IINSPECTABLE( application_data_statics, IApplicationDataStatics, struct application_data_statics, IActivationFactory_iface )
 
+DEFINE_IINSPECTABLE( application_data2, IApplicationData2, struct application_data, IApplicationData_iface )
+
+static HRESULT WINAPI application_data2_get_LocalCacheFolder( IApplicationData2 *iface, IStorageFolder **value )
+{
+    TRACE( "iface %p, value %p.\n", iface, value );
+    return application_data_folder( L"LocalCache", value );
+}
+
+static const struct IApplicationData2Vtbl application_data2_vtbl =
+{
+    application_data2_QueryInterface,
+    application_data2_AddRef,
+    application_data2_Release,
+    application_data2_GetIids,
+    application_data2_GetRuntimeClassName,
+    application_data2_GetTrustLevel,
+    application_data2_get_LocalCacheFolder,
+};
+
 static HRESULT WINAPI application_data_statics_get_Current( IApplicationDataStatics *iface, IApplicationData **value )
 {
     struct application_data *impl;
@@ -301,6 +329,7 @@ static HRESULT WINAPI application_data_statics_get_Current( IApplicationDataStat
     if (!(impl = calloc( 1, sizeof(*impl) ))) return E_OUTOFMEMORY;
 
     impl->IApplicationData_iface.lpVtbl = &application_data_vtbl;
+    impl->IApplicationData2_iface.lpVtbl = &application_data2_vtbl;
     impl->ref = 1;
 
     *value = &impl->IApplicationData_iface;
