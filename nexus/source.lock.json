@@ -3,6 +3,11 @@
   "base": "7fc704ef49c50e9702c9983a5250d5738697bb04",
   "xgameruntime": "d229c4833608b64f0d5afa92d80bde3c36614a3e",
   "files": {
+    "dlls/windows.storage.applicationdata/Makefile.in": "87fe136e13ec37bb0222263268548657e782eebe91804729780522bd788bbe6c",
+    "dlls/windows.storage.applicationdata/applicationdata.c": "d40619b5cb289d5d1387e8c6cef0f07f6e77f6a68ab7c8ea06e230c49239804e",
+    "dlls/windows.storage.applicationdata/main.c": "2b3d19f827217923aae9dc1b8a720f49534a71206bafceaedcebe24310ad91ea",
+    "dlls/windows.storage.applicationdata/private.h": "d38b17cc6196ec8f503ac357667e7cac427a338c8a06a1bfe48a1d2dcc41822a",
+    "dlls/windows.storage.applicationdata/cachefolder.c": "6e5a7a29fb2f22d822c344cca4f56cff83b313ea54c5105e0b190f33565177d9",
     "include/appmodel.h": "100a625c8f1c3f1816d461deada33c4ec83c989cec6670f950448459641bcb7a",
     "dlls/windows.applicationmodel/package.c": "4ef575fc97a475273fc9caf190d70c4e0cacdeee51a818a11fbeecfd5c446d95",
     "dlls/windows.applicationmodel/tests/model.c": "4b2218a627e80191810ddc390a3d2d74dc093d5f1e9132680edaeaca971985bc",
