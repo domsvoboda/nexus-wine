@@ -19,6 +19,7 @@
 
 #include "initguid.h"
 #include "private.h"
+#include "knownfolders.h"
 
 #include "wine/debug.h"
 
