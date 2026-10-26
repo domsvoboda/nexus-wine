@@ -80,6 +80,10 @@ static int (*pgnutls_privkey_import_rsa_raw)(gnutls_privkey_t, const gnutls_datu
 /* Not present in gnutls version < 3.4.0. */
 static int (*pgnutls_privkey_export_x509)(gnutls_privkey_t, gnutls_x509_privkey_t *);
 
+/* ECDSA private keys from NCrypt; not present in gnutls version < 3.3.0. */
+static int (*pgnutls_privkey_import_ecc_raw)(gnutls_privkey_t, gnutls_ecc_curve_t, const gnutls_datum_t *,
+                                             const gnutls_datum_t *, const gnutls_datum_t *);
+
 static void *libgnutls_handle;
 #define MAKE_FUNCPTR(f) static typeof(f) * p##f
 MAKE_FUNCPTR(gnutls_alert_get);
@@ -1328,6 +1332,51 @@ static ULONG set_component(gnutls_datum_t *comp, BYTE *data, ULONG len, ULONG *b
     return comp->size;
 }
 
+#define ECDSA_PRIVATE_P256_MAGIC 0x32534345 /* BCRYPT_ECDSA_PRIVATE_P256_MAGIC */
+
+/* BCRYPT_ECCPRIVATE_BLOB (magic, cbKey, X, Y, d; big-endian) for P-256 */
+static gnutls_x509_privkey_t get_x509_ecc_key(ULONG key_size, const BYTE *key_blob)
+{
+    const ULONG *hdr = (const ULONG *)key_blob;
+    gnutls_privkey_t key = NULL;
+    gnutls_x509_privkey_t x509key = NULL;
+    gnutls_datum_t x, y, k;
+    int ret;
+
+    if (!pgnutls_privkey_import_ecc_raw)
+    {
+        FIXME("gnutls_privkey_import_ecc_raw not available\n");
+        return NULL;
+    }
+    if (hdr[1] != 32 || key_size < 8 + 3 * 32)
+    {
+        WARN("bad ECC key blob size %u/%u\n", (unsigned)key_size, (unsigned)hdr[1]);
+        return NULL;
+    }
+    x.data = (BYTE *)key_blob + 8;
+    x.size = 32;
+    y.data = x.data + 32;
+    y.size = 32;
+    k.data = y.data + 32;
+    k.size = 32;
+    TRACE("ECDSA P-256 key\n");
+
+    if ((ret = pgnutls_privkey_init(&key)) < 0)
+    {
+        pgnutls_perror(ret);
+        return NULL;
+    }
+    if (((ret = pgnutls_privkey_import_ecc_raw(key, GNUTLS_ECC_CURVE_SECP256R1, &x, &y, &k)) < 0) ||
+         (ret = pgnutls_privkey_export_x509(key, &x509key)) < 0)
+    {
+        pgnutls_perror(ret);
+        pgnutls_privkey_deinit(key);
+        return NULL;
+    }
+    pgnutls_privkey_deinit(key);
+    return x509key;
+}
+
 static gnutls_x509_privkey_t get_x509_key(ULONG key_size, const BYTE *key_blob)
 {
     gnutls_privkey_t key = NULL;
@@ -1338,6 +1387,8 @@ static gnutls_x509_privkey_t get_x509_key(ULONG key_size, const BYTE *key_blob)
     DWORD size = key_size;
     int ret;
 
+    if (size >= 8 && *(const ULONG *)key_blob == ECDSA_PRIVATE_P256_MAGIC)
+        return get_x509_ecc_key(key_size, key_blob);
     if (size < sizeof(BLOBHEADER)) return NULL;
 
     rsakey = (RSAPUBKEY *)(key_blob + sizeof(BLOBHEADER));
@@ -1567,6 +1618,8 @@ static NTSTATUS process_attach( void *args )
         WARN("gnutls_privkey_export_x509 not found\n");
         pgnutls_privkey_export_x509 = compat_gnutls_privkey_export_x509;
     }
+    if (!(pgnutls_privkey_import_ecc_raw = dlsym(libgnutls_handle, "gnutls_privkey_import_ecc_raw")))
+        WARN("gnutls_privkey_import_ecc_raw not found\n");
     if (!(pgnutls_privkey_import_rsa_raw = dlsym(libgnutls_handle, "gnutls_privkey_import_rsa_raw")))
     {
         WARN("gnutls_privkey_import_rsa_raw not found\n");
