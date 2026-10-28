@@ -16,4 +16,5 @@ jobs:
         with:
           node-version: '22'
       - run: node nexus/check-source.mjs
+      - run: node --test tools/nexus-store-registration.test.mjs
       - run: git diff --check
