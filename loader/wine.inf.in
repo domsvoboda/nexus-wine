@@ -605,6 +605,8 @@ HKLM,%MciExtStr%,"wmx",,"MPEGVideo"
 HKLM,%MciExtStr%,"wvx",,"MPEGVideo"
 
 [Misc]
+HKLM,Software\Microsoft\WindowsRuntime\ActivatableClassId\Windows.Services.Store.StoreContext,"DllPath",0,"%11%\xgameruntime.dll"
+HKLM,Software\Microsoft\WindowsRuntime\ActivatableClassId\Windows.Services.Store.StoreContext,"ThreadingModel",0x10001,0
 HKLM,Software\Borland\Database Engine\Settings\SYSTEM\INIT,SHAREDMEMLOCATION,,9000
 HKLM,Software\Clients,,16
 HKLM,Software\Clients\Mail,,2,"Native Mail Client"
