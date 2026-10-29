@@ -801,18 +801,15 @@ static NTSTATUS set_key_property( struct key *key, const WCHAR *prop, UCHAR *val
 {
     if (!wcscmp( prop, BCRYPT_INITIALIZATION_VECTOR ))
     {
-        /* Setting the IV on the key handle, then calling BCryptEncrypt/Decrypt
-         * with pbIV = NULL, is the documented CNG way to supply an IV once.
-         * Returning STATUS_NOT_IMPLEMENTED here breaks any application that
-         * uses it: Forza Motorsport imports an AES-128 key this way and gives
-         * up when the property is refused, so no content is ever decrypted and
-         * the title loops forever on "Attempting to reconnect".
-         * key_symmetric_set_vector() is what BCryptEncrypt/BCryptDecrypt
-         * already use for their pbIV argument, so this just routes the same
-         * value in a call earlier. force_reset, because an explicit IV is a
-         * request to restart the chain, not to continue it. */
+        NTSTATUS status;
+
         if (!is_symmetric_key( key )) return STATUS_INVALID_HANDLE;
-        return key_symmetric_set_vector( key, value, size, TRUE );
+        if (!value || size != key->u.s.block_size || flags) return STATUS_INVALID_PARAMETER;
+        /* Serialize an explicit chain restart with encryption and decryption. */
+        EnterCriticalSection( &key->u.s.cs );
+        status = key_symmetric_set_vector( key, value, size, TRUE );
+        LeaveCriticalSection( &key->u.s.cs );
+        return status;
     }
     else if (!wcscmp( prop, BCRYPT_CHAINING_MODE ))
     {
@@ -1204,12 +1201,12 @@ static NTSTATUS key_symmetric_set_vector( struct key *key, UCHAR *vector, ULONG 
     BOOL needs_reset = force_reset || !is_equal_vector( key->u.s.vector, key->u.s.vector_len, vector, vector_len );
     if (vector)
     {
-        free( key->u.s.vector );
-        key->u.s.vector = NULL;
-        key->u.s.vector_len = 0;
+        UCHAR *copy;
 
-        if (!(key->u.s.vector = malloc( vector_len ))) return STATUS_NO_MEMORY;
-        memcpy( key->u.s.vector, vector, vector_len );
+        if (!(copy = malloc( vector_len ))) return STATUS_NO_MEMORY;
+        memcpy( copy, vector, vector_len );
+        free( key->u.s.vector );
+        key->u.s.vector = copy;
         key->u.s.vector_len = vector_len;
     }
     if (needs_reset) UNIX_CALL( key_symmetric_vector_reset, key );
