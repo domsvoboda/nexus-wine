@@ -25,6 +25,8 @@
 #include "config.h"
 
 #include <stdlib.h>
+#include <string.h>
+#include "wine/desktop-identity.h"
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -60,6 +62,7 @@ static const struct user_driver_funcs waylanddrv_funcs =
 
 static void wayland_init_process_name(void)
 {
+    const char *desktop_id = wine_get_desktop_app_id();
     WCHAR *p, *appname;
     WCHAR appname_lower[MAX_PATH];
     DWORD appname_len;
@@ -67,6 +70,11 @@ static void wayland_init_process_name(void)
     DWORD utf8_size;
     int i;
 
+    if (desktop_id)
+    {
+        process_name = strdup(desktop_id);
+        return;
+    }
     appname = NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer;
     if ((p = wcsrchr(appname, '/'))) appname = p + 1;
     if ((p = wcsrchr(appname, '\\'))) appname = p + 1;

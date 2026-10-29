@@ -966,6 +966,7 @@ SOURCES = \
 	wine/condrv.h \
 	wine/dcetypes.idl \
 	wine/debug.h \
+	wine/desktop-identity.h \
 	wine/dplaysp.h \
 	wine/epm.idl \
 	wine/exception.h \
