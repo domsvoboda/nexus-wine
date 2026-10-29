@@ -1592,6 +1592,32 @@ static NTSTATUS query_property( struct disk_device *device, IRP *irp )
 
         break;
     }
+    case StorageDeviceTrimProperty:
+    {
+        DEVICE_TRIM_DESCRIPTOR *d = irp->AssociatedIrp.SystemBuffer;
+        BOOLEAN enabled;
+        struct get_device_trim_params params = { device->unix_device, device->unix_mount, &enabled };
+
+        if (query->QueryType != PropertyStandardQuery) return STATUS_NOT_SUPPORTED;
+        if (irpsp->Parameters.DeviceIoControl.OutputBufferLength < sizeof(STORAGE_DESCRIPTOR_HEADER))
+            return STATUS_INVALID_PARAMETER;
+        if ((status = MOUNTMGR_CALL( get_device_trim, &params ))) return status;
+
+        if (irpsp->Parameters.DeviceIoControl.OutputBufferLength < sizeof(*d))
+        {
+            d->Version = d->Size = sizeof(*d);
+            irp->IoStatus.Information = sizeof(STORAGE_DESCRIPTOR_HEADER);
+        }
+        else
+        {
+            memset( d, 0, sizeof(*d) );
+            d->Version = d->Size = sizeof(*d);
+            d->TrimEnabled = enabled;
+            irp->IoStatus.Information = sizeof(*d);
+        }
+        status = STATUS_SUCCESS;
+        break;
+    }
     case StorageDeviceSeekPenaltyProperty:
     {
         DEVICE_SEEK_PENALTY_DESCRIPTOR *d = irp->AssociatedIrp.SystemBuffer;

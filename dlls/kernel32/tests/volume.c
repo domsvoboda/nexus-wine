@@ -656,6 +656,48 @@ static void test_disk_extents(void)
     CloseHandle( handle );
 }
 
+static void test_trim_property( HANDLE handle )
+{
+    STORAGE_PROPERTY_QUERY query = { StorageDeviceTrimProperty, PropertyStandardQuery };
+    union { DEVICE_TRIM_DESCRIPTOR descriptor; BYTE bytes[32]; } output;
+    DWORD size, error;
+    unsigned int len, i;
+    BOOL ret;
+
+    C_ASSERT( sizeof(DEVICE_TRIM_DESCRIPTOR) == 12 );
+    ret = DeviceIoControl( handle, IOCTL_STORAGE_QUERY_PROPERTY, &query, sizeof(query),
+                          &output, sizeof(output), &size, NULL );
+    error = GetLastError();
+    if (!ret && (error == ERROR_NOT_SUPPORTED || error == ERROR_INVALID_FUNCTION))
+    {
+        win_skip( "StorageDeviceTrimProperty is not supported.\n" );
+        return;
+    }
+    ok( ret, "query failed, error %lu\n", error );
+    if (!ret) return;
+    ok( output.descriptor.TrimEnabled <= TRUE, "got trim %u\n", output.descriptor.TrimEnabled );
+
+    for (len = 0; len <= sizeof(output.descriptor); ++len)
+    {
+        memset( &output, 0xcc, sizeof(output) );
+        ret = DeviceIoControl( handle, IOCTL_STORAGE_QUERY_PROPERTY, &query, sizeof(query),
+                              &output, len, &size, NULL );
+        if (len < sizeof(STORAGE_DESCRIPTOR_HEADER))
+        {
+            ok( !ret, "short buffer %u succeeded\n", len );
+            continue;
+        }
+        ok( ret, "length %u failed, error %lu\n", len, GetLastError() );
+        if (!ret) continue;
+        ok( output.descriptor.Version == sizeof(output.descriptor), "version %lu\n", output.descriptor.Version );
+        ok( output.descriptor.Size == sizeof(output.descriptor), "size %lu\n", output.descriptor.Size );
+        ok( size == (len < sizeof(output.descriptor) ? sizeof(STORAGE_DESCRIPTOR_HEADER) : sizeof(output.descriptor)),
+            "length %u returned %lu bytes\n", len, size );
+        for (i = size; i < sizeof(output); ++i)
+            ok( output.bytes[i] == 0xcc, "length %u overwrote byte %u\n", len, i );
+    }
+}
+
 static void test_disk_query_property(void)
 {
     STORAGE_PROPERTY_QUERY query = {0};
@@ -698,6 +740,8 @@ static void test_disk_query_property(void)
     ok(descriptor.Version == sizeof(descriptor), "got descriptor.Version %ld\n", descriptor.Version);
     ok(descriptor.Size >= sizeof(descriptor), "got descriptor.Size %ld\n", descriptor.Size);
 
+
+    test_trim_property( handle );
 
     query.PropertyId = StorageDeviceSeekPenaltyProperty;
     query.QueryType = PropertyStandardQuery;
