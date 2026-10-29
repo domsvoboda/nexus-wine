@@ -15,7 +15,7 @@
     "configure.ac": "287d498788b45ffcfa49312c2b03da069056ee9acf10ba20b13a11ca508700e8",
     "dlls/advapi32/cred.c": "993bc2bf27d2797da7f11b026b1bf1bfb8abf37ca75334a801a55627c4eced62",
     "dlls/bcrypt/gnutls.c": "3ae97eeb5eaf0a474d081e1089a3c958c8c0fc0062379312394dcf5d76661dab",
-    "dlls/bcrypt/tests/bcrypt.c": "96e4c728649b2ac3d5a060672081c1a4de180a575993ba08427a12b2769dfd1a",
+    "dlls/bcrypt/tests/bcrypt.c": "9f0fbe586857c51087a1d66a9053fecd81d2c2e3c1646ba7d280c73436443beb",
     "dlls/concrt140/concrt140.spec": "34fa6cfff6c1163f1581664bde333798cbf93ac05d01c706d27c4c992a6f91d8",
     "dlls/concrt140/details.c": "257b2e8971156e8f9e06137a69e7590bbd5816ac9512cd034d255c07b55cd480",
     "dlls/kernelbase/Makefile.in": "5c0c4e27de72c067384b99955a46d146d8737a91ee7ba881470659baaa1dafbe",
