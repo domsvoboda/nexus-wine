@@ -698,6 +698,33 @@ static void test_trim_property( HANDLE handle )
     }
 }
 
+static void test_metadata_volume_open(void)
+{
+    WCHAR drives[256], device[] = L"\\\\.\\C:";
+    WCHAR *drive;
+    BYTE buffer[512];
+    DWORD size, error;
+    HANDLE handle;
+    BOOL ret;
+
+    size = GetLogicalDriveStringsW( ARRAY_SIZE(drives), drives );
+    ok( size && size < ARRAY_SIZE(drives), "drive list size %lu\n", size );
+    if (!size || size >= ARRAY_SIZE(drives)) return;
+    for (drive = drives; *drive; drive += lstrlenW(drive) + 1)
+    {
+        if (GetDriveTypeW( drive ) != DRIVE_FIXED) continue;
+        device[4] = drive[0];
+        handle = CreateFileW( device, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, 0 );
+        error = GetLastError();
+        ok( handle != INVALID_HANDLE_VALUE || broken(error == ERROR_ACCESS_DENIED),
+            "metadata open %s failed %lu\n", wine_dbgstr_w(device), error );
+        if (handle == INVALID_HANDLE_VALUE) continue;
+        ret = ReadFile( handle, buffer, sizeof(buffer), &size, NULL );
+        ok( !ret && GetLastError() == ERROR_ACCESS_DENIED, "read returned %d, error %lu\n", ret, GetLastError() );
+        CloseHandle( handle );
+    }
+}
+
 static void test_disk_query_property(void)
 {
     STORAGE_PROPERTY_QUERY query = {0};
@@ -2255,6 +2282,7 @@ START_TEST(volume)
     test_GetVolumeInformationA();
     test_enum_vols();
     test_disk_extents();
+    test_metadata_volume_open();
     test_disk_query_property();
     test_GetVolumePathNamesForVolumeNameA();
     test_GetVolumePathNamesForVolumeNameW();
