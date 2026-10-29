@@ -269,7 +269,7 @@ static DWORD async_reader_get_wait_timeout(struct async_reader *reader, QWORD pt
 static bool async_reader_wait_pts(struct async_reader *reader, QWORD pts)
 {
     IWMReaderCallbackAdvanced *callback_advanced = reader->callback_advanced;
-    DWORD timeout;
+    DWORD timeout, i;
 
     TRACE("reader %p, pts %I64d.\n", reader, pts);
 
@@ -286,6 +286,18 @@ static bool async_reader_wait_pts(struct async_reader *reader, QWORD pts)
         if (!(timeout = async_reader_get_wait_timeout(reader, pts)))
             return true;
         SleepConditionVariableCS(&reader->callback_cv, &reader->callback_cs, timeout);
+
+        /* A previously blocked read may have completed while waiting. Select
+         * again instead of delaying that output behind this future sample. */
+        for (i = 0; i < reader->stream_count; ++i)
+        {
+            struct list *entry = list_head(&reader->streams[i].read_samples);
+            WMT_STREAM_SELECTION selection;
+            if (entry && LIST_ENTRY(entry, struct sample, entry)->pts < pts
+                    && SUCCEEDED(IWMSyncReader2_GetStreamSelected(reader->reader, i + 1, &selection))
+                    && selection != WMT_OFF)
+                return false;
+        }
     }
 
     return false;
@@ -548,7 +560,12 @@ static HRESULT async_reader_get_next_sample(struct async_reader *reader,
         if (!(entry = list_head(&stream->read_samples)))
         {
             if (stream->read_result == E_PENDING)
-                return E_PENDING;
+            {
+                /* A blocked dedicated callback can retain all allocator buffers.
+                 * Keep delivering other outputs so their preroll can complete. */
+                if (!stream->dedicated_delivery_thread || list_empty(&stream->deliver_samples))
+                    return E_PENDING;
+            }
             continue;
         }
 
@@ -587,10 +604,9 @@ static void async_reader_deliver_samples(struct async_reader *reader)
         if (FAILED(hr = async_reader_get_next_sample(reader, &stream, &sample)))
             break;
 
-        stream_request_read(stream);
-
         if (async_reader_wait_pts(reader, sample->pts))
         {
+            stream_request_read(stream);
             if (!stream->dedicated_delivery_thread)
                 async_reader_deliver_sample(reader, sample);
             else
