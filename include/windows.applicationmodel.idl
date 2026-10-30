@@ -34,6 +34,7 @@ namespace Windows.ApplicationModel.Core {
 namespace Windows.ApplicationModel {
     typedef enum AppExecutionContext AppExecutionContext;
     typedef struct PackageVersion PackageVersion;
+    typedef enum PackageSignatureKind PackageSignatureKind;
 
     interface IAppDisplayInfo;
     interface IAppInfo;
@@ -48,6 +49,7 @@ namespace Windows.ApplicationModel {
     interface IPackage;
     interface IPackage2;
     interface IPackage3;
+    interface IPackage4;
     interface IPackageStatus;
     interface IPackageId;
     interface IPackageIdWithMetadata;
@@ -253,6 +255,28 @@ namespace Windows.ApplicationModel {
         HRESULT GetAppListEntriesAsync([out, retval] Windows.Foundation.IAsyncOperation<Windows.Foundation.Collections.IVectorView<Windows.ApplicationModel.Core.AppListEntry *> *> **operation);
     }
 
+    [contract(Windows.Foundation.UniversalApiContract, 3.0)]
+    enum PackageSignatureKind
+    {
+        None = 0,
+        Developer = 1,
+        Enterprise = 2,
+        Store = 3,
+        System = 4,
+    };
+
+    [
+        contract(Windows.Foundation.UniversalApiContract, 3.0),
+        exclusiveto(Windows.ApplicationModel.Package),
+        uuid(65aed1ae-b95b-450c-882b-6255187f397e)
+    ]
+    interface IPackage4 : IInspectable
+    {
+        [propget] HRESULT SignatureKind([out, retval] PackageSignatureKind *value);
+        [propget] HRESULT IsOptional([out, retval] boolean *value);
+        HRESULT VerifyContentIntegrityAsync([out, retval] Windows.Foundation.IAsyncOperation<boolean> **operation);
+    }
+
     [
         contract(Windows.Foundation.UniversalApiContract, 1.0),
         exclusiveto(Windows.ApplicationModel.PackageStatus),
@@ -405,7 +429,7 @@ namespace Windows.ApplicationModel {
         [contract(Windows.Foundation.UniversalApiContract, 1.0)] interface Windows.ApplicationModel.IPackage2;
         [contract(Windows.Foundation.UniversalApiContract, 1.0)] interface Windows.ApplicationModel.IPackage3;
         /* [contract(Windows.Foundation.UniversalApiContract, 1.0)] interface Windows.ApplicationModel.IPackageWithMetadata; */
-        /* [contract(Windows.Foundation.UniversalApiContract, 3.0)] interface Windows.ApplicationModel.IPackage4; */
+        [contract(Windows.Foundation.UniversalApiContract, 3.0)] interface Windows.ApplicationModel.IPackage4;
         /* [contract(Windows.Foundation.UniversalApiContract, 4.0)] interface Windows.ApplicationModel.IPackage5; */
         /* [contract(Windows.Foundation.UniversalApiContract, 7.0)] interface Windows.ApplicationModel.IPackage6; */
         /* [contract(Windows.Foundation.UniversalApiContract, 8.0)] interface Windows.ApplicationModel.IPackage7; */

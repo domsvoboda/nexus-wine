@@ -1,5 +1,5 @@
 MODULE  = windows.applicationmodel.dll
-IMPORTS = combase kernelbase ole32 xmllite
+IMPORTS = combase kernelbase ole32 xmllite bcrypt advapi32
 
 SOURCES = \
 	classes.idl \

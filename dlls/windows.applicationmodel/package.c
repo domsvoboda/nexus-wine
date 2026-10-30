@@ -536,14 +536,17 @@ static HRESULT package_id_create( IPackageId **out )
 }
 
 #include "package_metadata.h"
+#include "package_deployment.h"
 
 struct package
 {
     IPackage IPackage_iface;
     IPackage2 IPackage2_iface;
+    IPackage4 IPackage4_iface;
     LONG ref;
     IPackageId *id;
     struct package_metadata metadata;
+    HRESULT deployment_status;
 };
 
 static inline struct package *impl_from_IPackage( IPackage *iface )
@@ -572,6 +575,13 @@ static HRESULT WINAPI package_QueryInterface( IPackage *iface, REFIID iid, void 
     if (IsEqualGUID( iid, &IID_IPackage2 ))
     {
         *out = &impl->IPackage2_iface;
+        IPackage_AddRef(iface);
+        return S_OK;
+    }
+
+    if (IsEqualGUID(iid, &IID_IPackage4))
+    {
+        *out = &impl->IPackage4_iface;
         IPackage_AddRef(iface);
         return S_OK;
     }
@@ -610,10 +620,11 @@ static HRESULT WINAPI package_GetIids( IPackage *iface, ULONG *count, IID **iids
     if (count) *count = 0;
     if (iids) *iids = NULL;
     if (!count || !iids) return E_INVALIDARG;
-    if (!(*iids = CoTaskMemAlloc(2 * sizeof(**iids)))) return E_OUTOFMEMORY;
+    if (!(*iids = CoTaskMemAlloc(3 * sizeof(**iids)))) return E_OUTOFMEMORY;
     (*iids)[0] = IID_IPackage;
     (*iids)[1] = IID_IPackage2;
-    *count = 2;
+    (*iids)[2] = IID_IPackage4;
+    *count = 3;
     return S_OK;
 }
 
@@ -751,7 +762,9 @@ static HRESULT WINAPI package2_get_IsDevelopmentMode( IPackage2 *iface, boolean 
 {
     if (!value) return E_INVALIDARG;
     *value = FALSE;
-    return E_NOTIMPL;
+    /* This state comes from an explicit normal registration, not from finding
+     * a loose manifest or from the signature's existence alone. */
+    return impl_from_IPackage2(iface)->deployment_status;
 }
 
 static const struct IPackage2Vtbl package2_vtbl =
@@ -762,6 +775,57 @@ static const struct IPackage2Vtbl package2_vtbl =
     package2_get_Logo, package2_get_IsResourcePackage, package2_get_IsBundle,
     package2_get_IsDevelopmentMode,
 };
+
+DEFINE_IINSPECTABLE( package4, IPackage4, struct package, IPackage_iface )
+
+static HRESULT WINAPI package4_get_SignatureKind( IPackage4 *iface, PackageSignatureKind *value )
+{
+    struct package *impl = impl_from_IPackage4(iface);
+    if (!value) return E_INVALIDARG;
+    *value = PackageSignatureKind_None;
+    if (FAILED(impl->deployment_status)) return impl->deployment_status;
+    /* This is the authenticated retail container origin, not an entitlement
+     * or a successful verification of every installed payload file. */
+    *value = PackageSignatureKind_Store;
+    return S_OK;
+}
+
+static HRESULT WINAPI package4_get_IsOptional( IPackage4 *iface, boolean *value )
+{
+    if (!value) return E_INVALIDARG;
+    *value = FALSE;
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI package4_VerifyContentIntegrityAsync( IPackage4 *iface, IAsyncOperation_boolean **operation )
+{
+    if (!operation) return E_INVALIDARG;
+    *operation = NULL;
+    /* Metadata authentication is not a verification of the complete payload. */
+    return E_NOTIMPL;
+}
+
+static const struct IPackage4Vtbl package4_vtbl =
+{
+    package4_QueryInterface, package4_AddRef, package4_Release,
+    package4_GetIids, package4_GetRuntimeClassName, package4_GetTrustLevel,
+    package4_get_SignatureKind, package4_get_IsOptional, package4_VerifyContentIntegrityAsync,
+};
+
+static HRESULT package_current_deployment( const struct package_id *id )
+{
+    UINT32 length = 0;
+    WCHAR *root;
+    HRESULT hr;
+    LONG error = GetCurrentPackagePath(&length, NULL);
+    if (error != ERROR_INSUFFICIENT_BUFFER) return error ? HRESULT_FROM_WIN32(error) : E_UNEXPECTED;
+    if (!length || length > 32768) return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    if (!(root = malloc(length * sizeof(WCHAR)))) return E_OUTOFMEMORY;
+    error = GetCurrentPackagePath(&length, root);
+    hr = error ? HRESULT_FROM_WIN32(error) : package_deployment_current(root, id->full_name);
+    free(root);
+    return hr;
+}
 
 DEFINE_IINSPECTABLE( package_statics, IPackageStatics, struct package_statics, IActivationFactory_iface )
 
@@ -784,9 +848,12 @@ static HRESULT WINAPI package_statics_get_Current( IPackageStatics *iface, IPack
 
     impl->IPackage_iface.lpVtbl = &package_vtbl;
     impl->IPackage2_iface.lpVtbl = &package2_vtbl;
+    impl->IPackage4_iface.lpVtbl = &package4_vtbl;
     impl->ref = 1;
     impl->id = id;
     impl->metadata.status = package_metadata_read(impl_from_IPackageId(id), &impl->metadata);
+    impl->deployment_status = package_current_deployment(impl_from_IPackageId(id));
+    TRACE("current package deployment status %#lx.\n", impl->deployment_status);
 
     *value = &impl->IPackage_iface;
     TRACE( "created IPackage %p.\n", *value );

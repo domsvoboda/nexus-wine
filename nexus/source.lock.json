@@ -10,7 +10,7 @@
     "dlls/windows.storage.applicationdata/private.h": "d38b17cc6196ec8f503ac357667e7cac427a338c8a06a1bfe48a1d2dcc41822a",
     "dlls/windows.storage.applicationdata/cachefolder.c": "6e5a7a29fb2f22d822c344cca4f56cff83b313ea54c5105e0b190f33565177d9",
     "include/appmodel.h": "768a40ba75985c54a514295de4b522a84e6f5bd984492b04088d83144d5b5c48",
-    "dlls/windows.applicationmodel/package.c": "19ffac6cef09d8a0444c3b3b611fc15455d5b7112def0828eb737cfd0f04f20a",
+    "dlls/windows.applicationmodel/package.c": "64eeec1fcac37e97f4d918c04bbf1b40f30aba79670d887b338d94b5fa94f7d3",
     "dlls/windows.applicationmodel/tests/model.c": "4b2218a627e80191810ddc390a3d2d74dc093d5f1e9132680edaeaca971985bc",
     "configure.ac": "287d498788b45ffcfa49312c2b03da069056ee9acf10ba20b13a11ca508700e8",
     "dlls/advapi32/cred.c": "993bc2bf27d2797da7f11b026b1bf1bfb8abf37ca75334a801a55627c4eced62",
@@ -63,8 +63,13 @@
     "dlls/winhttp/tests/winhttp.c": "42182288b86174afba8939e69b121793272c936c70c5709ea249d72246e9334a",
     "dlls/winhttp/winhttp_private.h": "ba4f7f387076107da41c97995cc03b89260fe633c546ccbba3459f821641834c",
     "dlls/wintypes/main.c": "af0e657d462c19090b4791b31837dba960448bfb111e30a90990f5090ec939da",
-    "dlls/windows.applicationmodel/Makefile.in": "2e69c0d30770379b051b003de960780a2e32c6365a247bb9c69d91217b55ac24",
+    "dlls/windows.applicationmodel/Makefile.in": "618bfa0d1c29fcb52382a8cd0554dea4bc5ec8d49275408af9fd0c7cbe2888aa",
     "dlls/windows.applicationmodel/main.c": "9f8c16a9144964e47d3daafad840000e73025e46da0041f351fe8c209e5d9874",
-    "dlls/windows.applicationmodel/package_metadata.h": "85aba72ba3b0122ef54b2679101bdd6cafc7a3c7c6a232ea5a6249a86cb47088"
+    "dlls/windows.applicationmodel/package_metadata.h": "85aba72ba3b0122ef54b2679101bdd6cafc7a3c7c6a232ea5a6249a86cb47088",
+    "include/windows.applicationmodel.idl": "6d20c0e520c9014492f5704e510553e7615ea2c0c13e1441e39bed3088d5256c",
+    "dlls/windows.applicationmodel/package_container.h": "3839cfbe77e2146adf1923749e6a2bf29bef8a5274e7874d69026f78442314f7",
+    "dlls/windows.applicationmodel/package_container_key.h": "3f4c0d604f547eb8f7263192ddfe737c883a2017887d2667b01ff0f4b81e933c",
+    "dlls/windows.applicationmodel/package_deployment.h": "5985a322b3a2e4f2934e8defec42b22621d166b724b1f66c068781da5a6e53cf",
+    "nexus/tools/package-register.c": "a2d2ab9ab76480bf427ff2133c073bc2af911abbab7773f5d2dd5c832eb42995"
   }
 }
