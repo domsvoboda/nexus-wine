@@ -14,6 +14,8 @@
 #define WIDL_using_Windows_Foundation_Diagnostics
 #include "windows.foundation.diagnostics.h"
 
+extern HRESULT channel_factory(HSTRING name, IActivationFactory **out);
+
 static const WCHAR class_name[] = L"Windows.Foundation.Diagnostics.LoggingChannelOptions";
 static LONG objects;
 struct options
@@ -186,7 +188,7 @@ HRESULT WINAPI DllGetActivationFactory(HSTRING name, IActivationFactory **out)
     *out = NULL;
     raw = WindowsGetStringRawBuffer(name, &length);
     if (length != ARRAY_SIZE(class_name) - 1 || wmemcmp(raw, class_name, length))
-        return CLASS_E_CLASSNOTAVAILABLE;
+        return channel_factory(name, out);
     return factory_QueryInterface(&factory.IActivationFactory_iface, &IID_IActivationFactory, (void **)out);
 }
 HRESULT WINAPI DllGetClassObject(REFCLSID clsid, REFIID iid, void **out)
@@ -197,5 +199,5 @@ HRESULT WINAPI DllGetClassObject(REFCLSID clsid, REFIID iid, void **out)
 }
 HRESULT WINAPI DllCanUnloadNow(void)
 {
-    return !objects && factory.ref == 1 ? S_OK : S_FALSE;
+    return S_FALSE; /* Static factories are cached for the process lifetime. */
 }

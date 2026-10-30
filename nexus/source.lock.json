@@ -72,11 +72,13 @@
     "dlls/windows.applicationmodel/package_deployment.h": "5985a322b3a2e4f2934e8defec42b22621d166b724b1f66c068781da5a6e53cf",
     "nexus/tools/package-register.c": "a2d2ab9ab76480bf427ff2133c073bc2af911abbab7773f5d2dd5c832eb42995",
     "include/Makefile.in": "44cebddbd4f3e95979373fadd8c39438ae08273f7e1726b15d6a6b4104467c34",
-    "include/windows.foundation.diagnostics.idl": "a0e1e13525f8105d08c34d97a235032ef65fc8218a62a81758ff3aee65de14d9",
-    "dlls/windows.foundation.diagnostics/Makefile.in": "1e720212c4d33fc0120fe601f4331ebbe104f7c88ac3cb8d15c225dc47d26289",
-    "dlls/windows.foundation.diagnostics/classes.idl": "302f8a59b5fbeaeb8f16520dc8b8124a7682f9182df8ec32774d26fc922d4b21",
-    "dlls/windows.foundation.diagnostics/main.c": "2d664b8e74a2c0c106340c519d0104301b393f4afb747fefbda61cce3c18ce92",
+    "include/windows.foundation.diagnostics.idl": "378fa5e6d2dc0187aeaa9a5e4de5b119d7af870bdcf41e546628a3bf5aa7938c",
+    "dlls/windows.foundation.diagnostics/Makefile.in": "1cdc6a8e54f8c8c2aa99272b5fc5e64b5c7a7e568e1b681810895fe08081cc3e",
+    "dlls/windows.foundation.diagnostics/classes.idl": "3da1b49e15c1ee4476f7c76621d81244a1e19101d69e07524f37260bc8da5d1e",
+    "dlls/windows.foundation.diagnostics/main.c": "8c35fdd2e054648dad117f83a810253365d2bbda881dc83697132e8f757e51d7",
     "dlls/windows.foundation.diagnostics/windows.foundation.diagnostics.spec": "e36f0097646fedd51d728a0e0484c1865edf7eb9638226d59f9199bea4c7f7ca",
-    "nexus/tests/diagnostics-options.cpp": "d01fbdcf680f8fda37d0120a3148b536dcca470fb133e2389e5f11b1c2c12212"
+    "nexus/tests/diagnostics-options.cpp": "d01fbdcf680f8fda37d0120a3148b536dcca470fb133e2389e5f11b1c2c12212",
+    "dlls/windows.foundation.diagnostics/channel.c": "eef1ab829e577b5851a43b48d28c1171b0f3bff9ae5a3bf22542242907a92548",
+    "nexus/tests/diagnostics-channel.cpp": "42b149b7575eeaaf0f6d943756821caa4ffe63fb5345aaebc83c6ca66f12c651"
   }
 }

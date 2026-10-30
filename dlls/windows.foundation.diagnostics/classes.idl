@@ -5,4 +5,5 @@ import "windows.foundation.diagnostics.idl";
 namespace Windows.Foundation.Diagnostics
 {
     runtimeclass LoggingChannelOptions;
+    runtimeclass LoggingChannel;
 }
