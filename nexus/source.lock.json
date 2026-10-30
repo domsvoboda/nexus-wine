@@ -81,6 +81,9 @@
     "dlls/windows.foundation.diagnostics/channel.c": "eef1ab829e577b5851a43b48d28c1171b0f3bff9ae5a3bf22542242907a92548",
     "nexus/tests/diagnostics-channel.cpp": "42b149b7575eeaaf0f6d943756821caa4ffe63fb5345aaebc83c6ca66f12c651",
     "dlls/windows.foundation.diagnostics/event_options.c": "aef1ee47955ec0870f6387a189c89ea7e1823d92692b80428ee817c935bdbd6a",
-    "nexus/tests/diagnostics-event-options.cpp": "149009d845926bf4afa2e29f9d06ad4415737cad2e2b770d8d6dfd883893b483"
+    "nexus/tests/diagnostics-event-options.cpp": "149009d845926bf4afa2e29f9d06ad4415737cad2e2b770d8d6dfd883893b483",
+    "dlls/ws2_32/protocol.c": "dadb2ac58d3f1da104fa0080a1c06d04d7e8bd37214844a8d5dd95293db755bf",
+    "dlls/ws2_32/local-host-addrinfo.h": "7f229adc3efb3faa38aaf7dfae3668d767b41e407773fcac292f46ced13e604f",
+    "nexus/tests/local-host-addresses.c": "44a17abb8f9239d52f16bbc2190aa0311b4bb3b58b2812c0ebd3b002124bf457"
   }
 }
