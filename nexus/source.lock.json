@@ -12,7 +12,7 @@
     "include/appmodel.h": "768a40ba75985c54a514295de4b522a84e6f5bd984492b04088d83144d5b5c48",
     "dlls/windows.applicationmodel/package.c": "64eeec1fcac37e97f4d918c04bbf1b40f30aba79670d887b338d94b5fa94f7d3",
     "dlls/windows.applicationmodel/tests/model.c": "4b2218a627e80191810ddc390a3d2d74dc093d5f1e9132680edaeaca971985bc",
-    "configure.ac": "287d498788b45ffcfa49312c2b03da069056ee9acf10ba20b13a11ca508700e8",
+    "configure.ac": "d2aa798d69c7708e5dd1196d93470b724db8d1acec130b327eb666042fae83af",
     "dlls/advapi32/cred.c": "993bc2bf27d2797da7f11b026b1bf1bfb8abf37ca75334a801a55627c4eced62",
     "dlls/bcrypt/gnutls.c": "3ae97eeb5eaf0a474d081e1089a3c958c8c0fc0062379312394dcf5d76661dab",
     "dlls/bcrypt/tests/bcrypt.c": "9f0fbe586857c51087a1d66a9053fecd81d2c2e3c1646ba7d280c73436443beb",
@@ -70,6 +70,13 @@
     "dlls/windows.applicationmodel/package_container.h": "3839cfbe77e2146adf1923749e6a2bf29bef8a5274e7874d69026f78442314f7",
     "dlls/windows.applicationmodel/package_container_key.h": "3f4c0d604f547eb8f7263192ddfe737c883a2017887d2667b01ff0f4b81e933c",
     "dlls/windows.applicationmodel/package_deployment.h": "5985a322b3a2e4f2934e8defec42b22621d166b724b1f66c068781da5a6e53cf",
-    "nexus/tools/package-register.c": "a2d2ab9ab76480bf427ff2133c073bc2af911abbab7773f5d2dd5c832eb42995"
+    "nexus/tools/package-register.c": "a2d2ab9ab76480bf427ff2133c073bc2af911abbab7773f5d2dd5c832eb42995",
+    "include/Makefile.in": "44cebddbd4f3e95979373fadd8c39438ae08273f7e1726b15d6a6b4104467c34",
+    "include/windows.foundation.diagnostics.idl": "a0e1e13525f8105d08c34d97a235032ef65fc8218a62a81758ff3aee65de14d9",
+    "dlls/windows.foundation.diagnostics/Makefile.in": "1e720212c4d33fc0120fe601f4331ebbe104f7c88ac3cb8d15c225dc47d26289",
+    "dlls/windows.foundation.diagnostics/classes.idl": "302f8a59b5fbeaeb8f16520dc8b8124a7682f9182df8ec32774d26fc922d4b21",
+    "dlls/windows.foundation.diagnostics/main.c": "2d664b8e74a2c0c106340c519d0104301b393f4afb747fefbda61cce3c18ce92",
+    "dlls/windows.foundation.diagnostics/windows.foundation.diagnostics.spec": "e36f0097646fedd51d728a0e0484c1865edf7eb9638226d59f9199bea4c7f7ca",
+    "nexus/tests/diagnostics-options.cpp": "d01fbdcf680f8fda37d0120a3148b536dcca470fb133e2389e5f11b1c2c12212"
   }
 }

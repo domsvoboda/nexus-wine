@@ -1,0 +1,5 @@
+MODULE = windows.foundation.diagnostics.dll
+IMPORTS = combase ole32
+SOURCES = \
+	classes.idl \
+	main.c

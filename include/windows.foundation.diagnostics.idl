@@ -1,0 +1,34 @@
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
+#ifdef __WIDL__
+#pragma winrt ns_prefix
+#endif
+import "inspectable.idl";
+import "windows.foundation.idl";
+namespace Windows.Foundation.Diagnostics
+{
+    interface ILoggingChannelOptions;
+    interface ILoggingChannelOptionsFactory;
+    runtimeclass LoggingChannelOptions;
+    [contract(Windows.Foundation.UniversalApiContract, 1.0),
+     exclusiveto(Windows.Foundation.Diagnostics.LoggingChannelOptions),
+     uuid(c3e847ff-0ebb-4a53-8c54-dec24926cb2c)]
+    interface ILoggingChannelOptions : IInspectable
+    {
+        [propget] HRESULT Group([out, retval] GUID *value);
+        [propput] HRESULT Group([in] GUID value);
+    }
+    [contract(Windows.Foundation.UniversalApiContract, 1.0),
+     exclusiveto(Windows.Foundation.Diagnostics.LoggingChannelOptions),
+     uuid(a93151da-7faf-4191-8755-5e86dc65d896)]
+    interface ILoggingChannelOptionsFactory : IInspectable
+    {
+        HRESULT Create([in] GUID group, [out, retval] Windows.Foundation.Diagnostics.LoggingChannelOptions **value);
+    }
+    [activatable(Windows.Foundation.UniversalApiContract, 1.0),
+     activatable(Windows.Foundation.Diagnostics.ILoggingChannelOptionsFactory, Windows.Foundation.UniversalApiContract, 1.0),
+     contract(Windows.Foundation.UniversalApiContract, 1.0), marshaling_behavior(agile), threading(both)]
+    runtimeclass LoggingChannelOptions
+    {
+        [default] interface Windows.Foundation.Diagnostics.ILoggingChannelOptions;
+    }
+}
