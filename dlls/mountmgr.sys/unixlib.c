@@ -37,6 +37,13 @@
 # include <sys/statvfs.h>
 #endif
 #include <unistd.h>
+#ifdef __linux__
+#include <mntent.h>
+#include <sys/ioctl.h>
+#include <sys/sysmacros.h>
+#include <linux/btrfs.h>
+#include <linux/magic.h>
+#endif
 
 #include "unixlib.h"
 #include "wine/debug.h"
@@ -567,6 +574,102 @@ static NTSTATUS get_shell_folder( void *args )
     return status;
 }
 
+#ifdef __linux__
+static NTSTATUS read_device_trim( dev_t dev, BOOLEAN *enabled )
+{
+    char path[128], buffer[64], *end;
+    unsigned long long value;
+    struct stat st;
+    ssize_t len;
+    int fd;
+
+    snprintf( path, sizeof(path), "/sys/dev/block/%u:%u/queue/discard_max_bytes", major(dev), minor(dev) );
+    if ((fd = open( path, O_RDONLY | O_CLOEXEC )) == -1)
+    {
+        /* Partitions use the queue of their parent block device. */
+        snprintf( path, sizeof(path), "/sys/dev/block/%u:%u/partition", major(dev), minor(dev) );
+        if (stat( path, &st )) return STATUS_NOT_SUPPORTED;
+        snprintf( path, sizeof(path), "/sys/dev/block/%u:%u/../queue/discard_max_bytes", major(dev), minor(dev) );
+        if ((fd = open( path, O_RDONLY | O_CLOEXEC )) == -1) return STATUS_NOT_SUPPORTED;
+    }
+    len = read( fd, buffer, sizeof(buffer) - 1 );
+    close( fd );
+    if (len <= 0 || len == sizeof(buffer) - 1) return STATUS_NOT_SUPPORTED;
+    buffer[len] = 0;
+    if (buffer[0] < '0' || buffer[0] > '9') return STATUS_NOT_SUPPORTED;
+    errno = 0;
+    value = strtoull( buffer, &end, 10 );
+    if (errno || (*end && strcmp( end, "\n" ))) return STATUS_NOT_SUPPORTED;
+    *enabled = !!value;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS get_mount_trim( const char *mount, BOOLEAN *enabled )
+{
+    struct btrfs_ioctl_fs_info_args info = {0};
+    struct mntent entry, *ent;
+    struct statfs fs;
+    struct stat st;
+    char buffer[16384], *resolved, *path = NULL;
+    FILE *file;
+    size_t best = 0, len;
+    NTSTATUS status = STATUS_NOT_SUPPORTED;
+    int fd;
+
+    if (!mount) return STATUS_NOT_SUPPORTED;
+    if (mount[0] != '/' && !(mount = path = get_dosdevices_path( mount ))) return STATUS_NO_MEMORY;
+    resolved = realpath( mount, NULL );
+    free( path );
+    if (!resolved) return STATUS_NOT_SUPPORTED;
+    if (stat( resolved, &st ) || statfs( resolved, &fs )) goto done;
+    if (fs.f_type != BTRFS_SUPER_MAGIC)
+    {
+        status = read_device_trim( st.st_dev, enabled );
+        goto done;
+    }
+
+    /* Btrfs uses anonymous st_dev values. Resolve its real block device, but
+     * do not infer capabilities of a multi-device filesystem from one member. */
+    if ((fd = open( resolved, O_RDONLY | O_DIRECTORY | O_CLOEXEC )) == -1) goto done;
+    if (ioctl( fd, BTRFS_IOC_FS_INFO, &info ) || info.num_devices != 1)
+    {
+        close( fd );
+        goto done;
+    }
+    close( fd );
+    if (!(file = setmntent( "/proc/self/mounts", "r" ))) goto done;
+    while ((ent = getmntent_r( file, &entry, buffer, sizeof(buffer) )))
+    {
+        len = strlen( ent->mnt_dir );
+        if (len <= best || strncmp( resolved, ent->mnt_dir, len )) continue;
+        if (len != 1 && resolved[len] && resolved[len] != '/') continue;
+        best = len;
+        status = STATUS_NOT_SUPPORTED;
+        if (!stat( ent->mnt_fsname, &st ) && S_ISBLK( st.st_mode ))
+            status = read_device_trim( st.st_rdev, enabled );
+    }
+    endmntent( file );
+done:
+    free( resolved );
+    return status;
+}
+#endif
+
+static NTSTATUS get_device_trim( void *args )
+{
+    const struct get_device_trim_params *params = args;
+#ifdef __linux__
+    struct stat st;
+
+    if (params->unix_mount) return get_mount_trim( params->unix_mount, params->enabled );
+    if (params->unix_device && !stat( params->unix_device, &st ) && S_ISBLK( st.st_mode ))
+        return read_device_trim( st.st_rdev, params->enabled );
+    return STATUS_NOT_SUPPORTED;
+#else
+    return STATUS_NOT_SUPPORTED;
+#endif
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     run_loop,
@@ -589,6 +692,7 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     write_credential,
     delete_credential,
     enumerate_credentials,
+    get_device_trim,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );

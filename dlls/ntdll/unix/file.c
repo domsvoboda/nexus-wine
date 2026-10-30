@@ -4929,6 +4929,23 @@ NTSTATUS WINAPI NtCreateFile( HANDLE *handle, ACCESS_MASK access, OBJECT_ATTRIBU
         name_hidden = is_hidden_file( unix_name );
         status = open_unix_file( handle, unix_name, access, &new_attr, attributes,
                                  sharing, disposition, options, ea_buffer, ea_length );
+        if (status == STATUS_ACCESS_DENIED && disposition == FILE_OPEN && !ea_length &&
+            !(options & FILE_DELETE_ON_CLOSE) &&
+            !(access & ~(SYNCHRONIZE | READ_CONTROL | FILE_READ_ATTRIBUTES)))
+        {
+            const UNICODE_STRING *name = new_attr.ObjectName;
+            unsigned int prefix = get_dos_prefix_len( name );
+
+            /* Metadata-only volume opens need not grant access to the Unix
+             * block device. The mount manager owns the corresponding volume. */
+            if (prefix && name->Length == (prefix + 2) * sizeof(WCHAR) &&
+                name->Buffer[prefix + 1] == ':' &&
+                towlower(name->Buffer[prefix]) >= 'a' && towlower(name->Buffer[prefix]) <= 'z')
+            {
+                unsigned int ret = server_open_file_object( handle, access, &new_attr, sharing, options );
+                if (!ret) status = ret;
+            }
+        }
     }
     else WARN( "%s not found (%x)\n", debugstr_us(attr->ObjectName), status );
 

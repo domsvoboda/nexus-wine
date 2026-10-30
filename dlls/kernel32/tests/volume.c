@@ -656,6 +656,75 @@ static void test_disk_extents(void)
     CloseHandle( handle );
 }
 
+static void test_trim_property( HANDLE handle )
+{
+    STORAGE_PROPERTY_QUERY query = { StorageDeviceTrimProperty, PropertyStandardQuery };
+    union { DEVICE_TRIM_DESCRIPTOR descriptor; BYTE bytes[32]; } output;
+    DWORD size, error;
+    unsigned int len, i;
+    BOOL ret;
+
+    C_ASSERT( sizeof(DEVICE_TRIM_DESCRIPTOR) == 12 );
+    ret = DeviceIoControl( handle, IOCTL_STORAGE_QUERY_PROPERTY, &query, sizeof(query),
+                          &output, sizeof(output), &size, NULL );
+    error = GetLastError();
+    if (!ret && (error == ERROR_NOT_SUPPORTED || error == ERROR_INVALID_FUNCTION))
+    {
+        win_skip( "StorageDeviceTrimProperty is not supported.\n" );
+        return;
+    }
+    ok( ret, "query failed, error %lu\n", error );
+    if (!ret) return;
+    ok( output.descriptor.TrimEnabled <= TRUE, "got trim %u\n", output.descriptor.TrimEnabled );
+
+    for (len = 0; len <= sizeof(output.descriptor); ++len)
+    {
+        memset( &output, 0xcc, sizeof(output) );
+        ret = DeviceIoControl( handle, IOCTL_STORAGE_QUERY_PROPERTY, &query, sizeof(query),
+                              &output, len, &size, NULL );
+        if (len < sizeof(STORAGE_DESCRIPTOR_HEADER))
+        {
+            ok( !ret, "short buffer %u succeeded\n", len );
+            continue;
+        }
+        ok( ret, "length %u failed, error %lu\n", len, GetLastError() );
+        if (!ret) continue;
+        ok( output.descriptor.Version == sizeof(output.descriptor), "version %lu\n", output.descriptor.Version );
+        ok( output.descriptor.Size == sizeof(output.descriptor), "size %lu\n", output.descriptor.Size );
+        ok( size == (len < sizeof(output.descriptor) ? sizeof(STORAGE_DESCRIPTOR_HEADER) : sizeof(output.descriptor)),
+            "length %u returned %lu bytes\n", len, size );
+        for (i = size; i < sizeof(output); ++i)
+            ok( output.bytes[i] == 0xcc, "length %u overwrote byte %u\n", len, i );
+    }
+}
+
+static void test_metadata_volume_open(void)
+{
+    WCHAR drives[256], device[] = L"\\\\.\\C:";
+    WCHAR *drive;
+    BYTE buffer[512];
+    DWORD size, error;
+    HANDLE handle;
+    BOOL ret;
+
+    size = GetLogicalDriveStringsW( ARRAY_SIZE(drives), drives );
+    ok( size && size < ARRAY_SIZE(drives), "drive list size %lu\n", size );
+    if (!size || size >= ARRAY_SIZE(drives)) return;
+    for (drive = drives; *drive; drive += lstrlenW(drive) + 1)
+    {
+        if (GetDriveTypeW( drive ) != DRIVE_FIXED) continue;
+        device[4] = drive[0];
+        handle = CreateFileW( device, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, 0 );
+        error = GetLastError();
+        ok( handle != INVALID_HANDLE_VALUE || broken(error == ERROR_ACCESS_DENIED),
+            "metadata open %s failed %lu\n", wine_dbgstr_w(device), error );
+        if (handle == INVALID_HANDLE_VALUE) continue;
+        ret = ReadFile( handle, buffer, sizeof(buffer), &size, NULL );
+        ok( !ret && GetLastError() == ERROR_ACCESS_DENIED, "read returned %d, error %lu\n", ret, GetLastError() );
+        CloseHandle( handle );
+    }
+}
+
 static void test_disk_query_property(void)
 {
     STORAGE_PROPERTY_QUERY query = {0};
@@ -698,6 +767,8 @@ static void test_disk_query_property(void)
     ok(descriptor.Version == sizeof(descriptor), "got descriptor.Version %ld\n", descriptor.Version);
     ok(descriptor.Size >= sizeof(descriptor), "got descriptor.Size %ld\n", descriptor.Size);
 
+
+    test_trim_property( handle );
 
     query.PropertyId = StorageDeviceSeekPenaltyProperty;
     query.QueryType = PropertyStandardQuery;
@@ -2211,6 +2282,7 @@ START_TEST(volume)
     test_GetVolumeInformationA();
     test_enum_vols();
     test_disk_extents();
+    test_metadata_volume_open();
     test_disk_query_property();
     test_GetVolumePathNamesForVolumeNameA();
     test_GetVolumePathNamesForVolumeNameW();

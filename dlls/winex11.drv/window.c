@@ -52,6 +52,7 @@
 #include "winuser.h"
 
 #include "wine/debug.h"
+#include "wine/desktop-identity.h"
 #include "wine/server.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(x11drv);
@@ -1248,9 +1249,15 @@ static void set_initial_wm_hints( Display *display, Window window )
     {
         static char steam_proton[] = "steam_proton";
         const char *app_id = getenv("SteamAppId");
+        const char *desktop_id = wine_get_desktop_app_id();
         char proton_app_class[128];
 
-        if(app_id && *app_id){
+        if (desktop_id)
+        {
+            class_hints->res_name = (char *)desktop_id;
+            class_hints->res_class = (char *)desktop_id;
+        }
+        else if(app_id && *app_id){
             snprintf(proton_app_class, sizeof(proton_app_class), "steam_app_%s", app_id);
             class_hints->res_name = proton_app_class;
             class_hints->res_class = proton_app_class;

@@ -92,6 +92,7 @@ LONG WINAPI AppPolicyGetWindowingModel(HANDLE processToken, AppPolicyWindowingMo
 LONG WINAPI GetCurrentPackageFamilyName(UINT32 *length, WCHAR *name);
 LONG WINAPI GetCurrentPackageFullName(UINT32 *length, WCHAR *name);
 LONG WINAPI GetCurrentPackageId(UINT32 *length, BYTE *buffer);
+LONG WINAPI GetCurrentPackagePath(UINT32 *length, WCHAR *path);
 LONG WINAPI GetPackagePath(const PACKAGE_ID *package_id, const UINT32 reserved, UINT32 *length, WCHAR *path);
 LONG WINAPI GetPackagesByPackageFamily(const WCHAR *family_name, UINT32 *count, WCHAR **full_names,
         UINT32 *buffer_length, WCHAR *buffer);

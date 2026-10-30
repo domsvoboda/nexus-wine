@@ -5178,6 +5178,47 @@ static void test_dh_SecretAgreement_values(void)
     ok(status == STATUS_SUCCESS, "got %08lx\n", status);
 }
 
+static void test_key_iv_property(void)
+{
+    UCHAR secret[16] = {0x2b,0x7e,0x15,0x16,0x28,0xae,0xd2,0xa6,0xab,0xf7,0x15,0x88,0x09,0xcf,0x4f,0x3c};
+    UCHAR initial[16] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
+    UCHAR plain[16] = {0x6b,0xc1,0xbe,0xe2,0x2e,0x40,0x9f,0x96,0xe9,0x3d,0x7e,0x11,0x73,0x93,0x17,0x2a};
+    UCHAR cipher[16] = {0x76,0x49,0xab,0xac,0x81,0x19,0xb2,0x46,0xce,0xe9,0x8e,0x9b,0x12,0xe9,0x19,0x7d};
+    UCHAR iv[16], output[16];
+    BCRYPT_ALG_HANDLE alg;
+    BCRYPT_KEY_HANDLE key;
+    NTSTATUS status;
+    ULONG size;
+    unsigned int i;
+
+    status = BCryptOpenAlgorithmProvider( &alg, BCRYPT_AES_ALGORITHM, NULL, 0 );
+    ok( !status, "open failed %#lx\n", status );
+    if (status) return;
+    status = BCryptGenerateSymmetricKey( alg, &key, NULL, 0, secret, sizeof(secret), 0 );
+    ok( !status, "key failed %#lx\n", status );
+    if (status) goto done;
+    /* NIST SP 800-38A, F.2.1, with the IV supplied as a key property. */
+    for (i = 0; i < 2; ++i)
+    {
+        memcpy( iv, initial, sizeof(iv) );
+        status = BCryptSetProperty( key, BCRYPT_INITIALIZATION_VECTOR, iv, sizeof(iv), 0 );
+        ok( !status, "set IV failed %#lx\n", status );
+        memset( iv, 0xff, sizeof(iv) );
+        status = BCryptEncrypt( key, plain, sizeof(plain), NULL, NULL, 0, output, sizeof(output), &size, 0 );
+        ok( !status, "encrypt failed %#lx\n", status );
+        ok( size == sizeof(output), "size %lu\n", size );
+        ok( !memcmp( output, cipher, sizeof(cipher) ), "wrong ciphertext\n" );
+    }
+    status = BCryptSetProperty( key, BCRYPT_INITIALIZATION_VECTOR, initial, sizeof(initial), 0 );
+    ok( !status, "reset IV failed %#lx\n", status );
+    status = BCryptDecrypt( key, cipher, sizeof(cipher), NULL, NULL, 0, output, sizeof(output), &size, 0 );
+    ok( !status, "decrypt failed %#lx\n", status );
+    ok( !memcmp( output, plain, sizeof(plain) ), "wrong plaintext\n" );
+    BCryptDestroyKey( key );
+done:
+    BCryptCloseAlgorithmProvider( alg, 0 );
+}
+
 START_TEST(bcrypt)
 {
     HMODULE module;
@@ -5212,6 +5253,7 @@ START_TEST(bcrypt)
     test_BCryptSignHash();
     test_BCryptEnumAlgorithms();
     test_aes_vector();
+    test_key_iv_property();
     test_BcryptDeriveKeyCapi();
     test_DSA();
     test_SecretAgreement();

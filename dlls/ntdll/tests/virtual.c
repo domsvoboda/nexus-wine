@@ -3523,6 +3523,53 @@ static void test_exec_memory_writes(void)
     RtlRemoveVectoredExceptionHandler( handler );
 }
 
+static void test_64k_page_hint(void)
+{
+    const SIZE_T pool_size = 14 * 1024 * 1024;
+    MEMORY_BASIC_INFORMATION info;
+    NTSTATUS status;
+    SIZE_T size;
+    BYTE *base;
+    unsigned int ex;
+
+    for (ex = 0; ex < 2; ++ex)
+    {
+        if (ex && !pNtAllocateVirtualMemoryEx) continue;
+        base = NULL;
+        size = pool_size;
+        if (ex)
+            status = pNtAllocateVirtualMemoryEx( NtCurrentProcess(), (void **)&base, &size,
+                    MEM_RESERVE | MEM_COMMIT | MEM_64K_PAGES, PAGE_READWRITE, NULL, 0 );
+        else
+            status = NtAllocateVirtualMemory( NtCurrentProcess(), (void **)&base, 0, &size,
+                    MEM_RESERVE | MEM_COMMIT | MEM_64K_PAGES, PAGE_READWRITE );
+        ok( !status, "64K hint, ex %u: status %#lx\n", ex, status );
+        if (!status)
+        {
+            ok( !((UINT_PTR)base & 0xffff), "unaligned base %p\n", base );
+            ok( size == pool_size, "unexpected size %#Ix\n", size );
+            ok( VirtualQuery( base, &info, sizeof(info) ) == sizeof(info), "VirtualQuery failed\n" );
+            ok( info.State == MEM_COMMIT && info.Type == MEM_PRIVATE, "unexpected memory state\n" );
+            ok( !base[0] && !base[0xffff] && !base[pool_size - 1], "memory not zero initialized\n" );
+            base[0xffff] = 0xa5;
+            base[pool_size - 1] = 0x5a;
+            ok( base[0xffff] == 0xa5 && base[pool_size - 1] == 0x5a, "memory not writable\n" );
+            VirtualFree( base, 0, MEM_RELEASE );
+        }
+
+        base = NULL;
+        size = 65535;
+        if (ex)
+            status = pNtAllocateVirtualMemoryEx( NtCurrentProcess(), (void **)&base, &size,
+                    MEM_RESERVE | MEM_COMMIT | MEM_64K_PAGES, PAGE_READWRITE, NULL, 0 );
+        else
+            status = NtAllocateVirtualMemory( NtCurrentProcess(), (void **)&base, 0, &size,
+                    MEM_RESERVE | MEM_COMMIT | MEM_64K_PAGES, PAGE_READWRITE );
+        ok( status == STATUS_INVALID_PARAMETER, "unaligned 64K hint, ex %u: %#lx\n", ex, status );
+        ok( !base && size == 65535, "failed request changed outputs\n" );
+    }
+}
+
 START_TEST(virtual)
 {
     HMODULE mod;
@@ -3564,6 +3611,7 @@ START_TEST(virtual)
     test_NtAllocateVirtualMemory();
     test_NtAllocateVirtualMemoryEx();
     test_NtAllocateVirtualMemoryEx_address_requirements();
+    test_64k_page_hint();
     test_NtFreeVirtualMemory();
     test_NtProtectVirtualMemory();
     test_RtlCreateUserStack();

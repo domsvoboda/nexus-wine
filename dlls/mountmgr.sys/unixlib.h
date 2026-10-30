@@ -80,6 +80,13 @@ struct get_volume_size_info_params
     struct size_info *info;
 };
 
+struct get_device_trim_params
+{
+    const char *unix_device;
+    const char *unix_mount;
+    BOOLEAN *enabled;
+};
+
 struct get_dosdev_symlink_params
 {
     const char *dev;
@@ -173,6 +180,7 @@ enum mountmgr_funcs
     unix_write_credential,
     unix_delete_credential,
     unix_enumerate_credentials,
+    unix_get_device_trim,
     unix_funcs_count
 };
 

@@ -1526,6 +1526,46 @@ NTSTATUS query_unix_drive( void *buff, SIZE_T insize, SIZE_T outsize, IO_STATUS_
     return status;
 }
 
+static NTSTATUS query_device_trim( struct disk_device *device, BOOLEAN *enabled )
+{
+    struct get_device_trim_params params = { device->unix_device, device->unix_mount, enabled };
+    struct volume *volume;
+    BOOLEAN value, found = FALSE, unknown = FALSE;
+    NTSTATUS status;
+
+    if (device->unix_device || device->unix_mount) return MOUNTMGR_CALL( get_device_trim, &params );
+    if (device->volume || device->devnum.DeviceType != FILE_DEVICE_DISK || device->devnum.DeviceNumber)
+        return STATUS_NOT_SUPPORTED;
+
+    /* The virtual PhysicalDrive0 represents all harddisk volumes whose extent
+     * reports DiskNumber 0. It supports discard only if all its backing volumes
+     * support it; an unknown backing must not become an SSD capability claim. */
+    LIST_FOR_EACH_ENTRY( volume, &volumes_list, struct volume, entry )
+    {
+        struct disk_device *backing = volume->device;
+        if (backing->devnum.DeviceType != FILE_DEVICE_DISK || backing->devnum.DeviceNumber) continue;
+        params.unix_device = backing->unix_device;
+        params.unix_mount = backing->unix_mount;
+        params.enabled = &value;
+        status = MOUNTMGR_CALL( get_device_trim, &params );
+        TRACE( "virtual disk backing %s trim status %#lx\n", debugstr_w(backing->name.Buffer), status );
+        if (status)
+        {
+            unknown = TRUE;
+            continue;
+        }
+        found = TRUE;
+        if (!value)
+        {
+            *enabled = FALSE;
+            return STATUS_SUCCESS;
+        }
+    }
+    if (!found || unknown) return STATUS_NOT_SUPPORTED;
+    *enabled = TRUE;
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS query_property( struct disk_device *device, IRP *irp )
 {
     IO_STACK_LOCATION *irpsp = IoGetCurrentIrpStackLocation( irp );
@@ -1590,6 +1630,34 @@ static NTSTATUS query_property( struct disk_device *device, IRP *irp )
             status = STATUS_SUCCESS;
         }
 
+        break;
+    }
+    case StorageDeviceTrimProperty:
+    {
+        DEVICE_TRIM_DESCRIPTOR *d = irp->AssociatedIrp.SystemBuffer;
+        BOOLEAN enabled;
+
+        if (query->QueryType != PropertyStandardQuery) return STATUS_NOT_SUPPORTED;
+        if (irpsp->Parameters.DeviceIoControl.OutputBufferLength < sizeof(STORAGE_DESCRIPTOR_HEADER))
+            return STATUS_INVALID_PARAMETER;
+        status = query_device_trim( device, &enabled );
+        TRACE( "TRIM query %s type %u output %lu status %#lx\n", debugstr_w(device->name.Buffer),
+               query->QueryType, irpsp->Parameters.DeviceIoControl.OutputBufferLength, status );
+        if (status) return status;
+
+        if (irpsp->Parameters.DeviceIoControl.OutputBufferLength < sizeof(*d))
+        {
+            d->Version = d->Size = sizeof(*d);
+            irp->IoStatus.Information = sizeof(STORAGE_DESCRIPTOR_HEADER);
+        }
+        else
+        {
+            memset( d, 0, sizeof(*d) );
+            d->Version = d->Size = sizeof(*d);
+            d->TrimEnabled = enabled;
+            irp->IoStatus.Information = sizeof(*d);
+        }
+        status = STATUS_SUCCESS;
         break;
     }
     case StorageDeviceSeekPenaltyProperty:
