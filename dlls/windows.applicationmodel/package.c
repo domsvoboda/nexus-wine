@@ -535,11 +535,15 @@ static HRESULT package_id_create( IPackageId **out )
     return S_OK;
 }
 
+#include "package_metadata.h"
+
 struct package
 {
     IPackage IPackage_iface;
+    IPackage2 IPackage2_iface;
     LONG ref;
     IPackageId *id;
+    struct package_metadata metadata;
 };
 
 static inline struct package *impl_from_IPackage( IPackage *iface )
@@ -553,6 +557,8 @@ static HRESULT WINAPI package_QueryInterface( IPackage *iface, REFIID iid, void 
 
     TRACE( "iface %p, iid %s, out %p.\n", iface, debugstr_guid( iid ), out );
 
+    if (!out) return E_POINTER;
+    *out = NULL;
     if (IsEqualGUID( iid, &IID_IUnknown ) ||
         IsEqualGUID( iid, &IID_IInspectable ) ||
         IsEqualGUID( iid, &IID_IAgileObject ) ||
@@ -560,6 +566,13 @@ static HRESULT WINAPI package_QueryInterface( IPackage *iface, REFIID iid, void 
     {
         *out = &impl->IPackage_iface;
         IInspectable_AddRef( *out );
+        return S_OK;
+    }
+
+    if (IsEqualGUID( iid, &IID_IPackage2 ))
+    {
+        *out = &impl->IPackage2_iface;
+        IPackage_AddRef(iface);
         return S_OK;
     }
 
@@ -586,27 +599,37 @@ static ULONG WINAPI package_Release( IPackage *iface )
     if (!ref)
     {
         IPackageId_Release( impl->id );
+        package_metadata_clear(&impl->metadata);
         free( impl );
     }
     return ref;
 }
 
-static HRESULT WINAPI package_GetIids( IPackage *iface, ULONG *iid_count, IID **iids )
+static HRESULT WINAPI package_GetIids( IPackage *iface, ULONG *count, IID **iids )
 {
-    FIXME( "iface %p, iid_count %p, iids %p stub!\n", iface, iid_count, iids );
-    return E_NOTIMPL;
+    if (count) *count = 0;
+    if (iids) *iids = NULL;
+    if (!count || !iids) return E_INVALIDARG;
+    if (!(*iids = CoTaskMemAlloc(2 * sizeof(**iids)))) return E_OUTOFMEMORY;
+    (*iids)[0] = IID_IPackage;
+    (*iids)[1] = IID_IPackage2;
+    *count = 2;
+    return S_OK;
 }
 
-static HRESULT WINAPI package_GetRuntimeClassName( IPackage *iface, HSTRING *class_name )
+static HRESULT WINAPI package_GetRuntimeClassName( IPackage *iface, HSTRING *value )
 {
-    FIXME( "iface %p, class_name %p stub!\n", iface, class_name );
-    return E_NOTIMPL;
+    static const WCHAR name[] = L"Windows.ApplicationModel.Package";
+    if (!value) return E_INVALIDARG;
+    *value = NULL;
+    return WindowsCreateString(name, ARRAY_SIZE(name) - 1, value);
 }
 
-static HRESULT WINAPI package_GetTrustLevel( IPackage *iface, TrustLevel *trust_level )
+static HRESULT WINAPI package_GetTrustLevel( IPackage *iface, TrustLevel *value )
 {
-    FIXME( "iface %p, trust_level %p stub!\n", iface, trust_level );
-    return E_NOTIMPL;
+    if (!value) return E_INVALIDARG;
+    *value = BaseTrust;
+    return S_OK;
 }
 
 static HRESULT WINAPI package_get_Id( IPackage *iface, IPackageId **value )
@@ -637,8 +660,12 @@ static HRESULT WINAPI package_get_InstalledLocation( IPackage *iface, IStorageFo
 
 static HRESULT WINAPI package_get_IsFramework( IPackage *iface, boolean *value )
 {
-    FIXME( "iface %p, value %p stub!\n", iface, value );
-    return E_NOTIMPL;
+    struct package_metadata *metadata = &impl_from_IPackage(iface)->metadata;
+    if (!value) return E_INVALIDARG;
+    *value = FALSE;
+    if (FAILED(metadata->status)) return metadata->status;
+    *value = metadata->framework;
+    return S_OK;
 }
 
 static HRESULT WINAPI package_get_Dependencies( IPackage *iface, IVectorView_Package **value )
@@ -663,6 +690,79 @@ static const struct IPackageVtbl package_vtbl =
     package_get_Dependencies,
 };
 
+DEFINE_IINSPECTABLE( package2, IPackage2, struct package, IPackage_iface )
+
+static HRESULT package2_string( IPackage2 *iface, unsigned int index, HSTRING *value )
+{
+    struct package_metadata *metadata = &impl_from_IPackage2(iface)->metadata;
+    const WCHAR *text;
+    if (!value) return E_INVALIDARG;
+    *value = NULL;
+    if (FAILED(metadata->status)) return metadata->status;
+    if (!(metadata->present & (1u << index)))
+        return index == 2 ? S_OK : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    text = WindowsGetStringRawBuffer(metadata->strings[index], NULL);
+    /* Resource identifiers require MRT resolution, not a literal display name. */
+    if (WindowsGetStringLen(metadata->strings[index]) >= 12 &&
+        CompareStringOrdinal(text, 12, L"ms-resource:", 12, TRUE) == CSTR_EQUAL) return E_NOTIMPL;
+    return WindowsDuplicateString(metadata->strings[index], value);
+}
+
+static HRESULT WINAPI package2_get_DisplayName( IPackage2 *iface, HSTRING *value )
+{
+    return package2_string(iface, 0, value);
+}
+
+static HRESULT WINAPI package2_get_PublisherDisplayName( IPackage2 *iface, HSTRING *value )
+{
+    return package2_string(iface, 1, value);
+}
+
+static HRESULT WINAPI package2_get_Description( IPackage2 *iface, HSTRING *value )
+{
+    return package2_string(iface, 2, value);
+}
+
+static HRESULT WINAPI package2_get_Logo( IPackage2 *iface, IUriRuntimeClass **value )
+{
+    if (!value) return E_INVALIDARG;
+    *value = NULL;
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI package2_get_IsResourcePackage( IPackage2 *iface, boolean *value )
+{
+    struct package_metadata *metadata = &impl_from_IPackage2(iface)->metadata;
+    if (!value) return E_INVALIDARG;
+    *value = FALSE;
+    if (FAILED(metadata->status)) return metadata->status;
+    *value = metadata->resource;
+    return S_OK;
+}
+
+static HRESULT WINAPI package2_get_IsBundle( IPackage2 *iface, boolean *value )
+{
+    if (!value) return E_INVALIDARG;
+    *value = FALSE;
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI package2_get_IsDevelopmentMode( IPackage2 *iface, boolean *value )
+{
+    if (!value) return E_INVALIDARG;
+    *value = FALSE;
+    return E_NOTIMPL;
+}
+
+static const struct IPackage2Vtbl package2_vtbl =
+{
+    package2_QueryInterface, package2_AddRef, package2_Release,
+    package2_GetIids, package2_GetRuntimeClassName, package2_GetTrustLevel,
+    package2_get_DisplayName, package2_get_PublisherDisplayName, package2_get_Description,
+    package2_get_Logo, package2_get_IsResourcePackage, package2_get_IsBundle,
+    package2_get_IsDevelopmentMode,
+};
+
 DEFINE_IINSPECTABLE( package_statics, IPackageStatics, struct package_statics, IActivationFactory_iface )
 
 static HRESULT WINAPI package_statics_get_Current( IPackageStatics *iface, IPackage **value )
@@ -683,8 +783,10 @@ static HRESULT WINAPI package_statics_get_Current( IPackageStatics *iface, IPack
     }
 
     impl->IPackage_iface.lpVtbl = &package_vtbl;
+    impl->IPackage2_iface.lpVtbl = &package2_vtbl;
     impl->ref = 1;
     impl->id = id;
+    impl->metadata.status = package_metadata_read(impl_from_IPackageId(id), &impl->metadata);
 
     *value = &impl->IPackage_iface;
     TRACE( "created IPackage %p.\n", *value );

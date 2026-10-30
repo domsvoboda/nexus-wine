@@ -9,8 +9,8 @@
     "dlls/windows.storage.applicationdata/main.c": "2b3d19f827217923aae9dc1b8a720f49534a71206bafceaedcebe24310ad91ea",
     "dlls/windows.storage.applicationdata/private.h": "d38b17cc6196ec8f503ac357667e7cac427a338c8a06a1bfe48a1d2dcc41822a",
     "dlls/windows.storage.applicationdata/cachefolder.c": "6e5a7a29fb2f22d822c344cca4f56cff83b313ea54c5105e0b190f33565177d9",
-    "include/appmodel.h": "100a625c8f1c3f1816d461deada33c4ec83c989cec6670f950448459641bcb7a",
-    "dlls/windows.applicationmodel/package.c": "4ef575fc97a475273fc9caf190d70c4e0cacdeee51a818a11fbeecfd5c446d95",
+    "include/appmodel.h": "768a40ba75985c54a514295de4b522a84e6f5bd984492b04088d83144d5b5c48",
+    "dlls/windows.applicationmodel/package.c": "19ffac6cef09d8a0444c3b3b611fc15455d5b7112def0828eb737cfd0f04f20a",
     "dlls/windows.applicationmodel/tests/model.c": "4b2218a627e80191810ddc390a3d2d74dc093d5f1e9132680edaeaca971985bc",
     "configure.ac": "287d498788b45ffcfa49312c2b03da069056ee9acf10ba20b13a11ca508700e8",
     "dlls/advapi32/cred.c": "993bc2bf27d2797da7f11b026b1bf1bfb8abf37ca75334a801a55627c4eced62",
@@ -62,6 +62,9 @@
     "dlls/winhttp/session.c": "6d746fbcae124f8b9db86c10d6708da79f793a75381db139354c6256ab0e02b9",
     "dlls/winhttp/tests/winhttp.c": "42182288b86174afba8939e69b121793272c936c70c5709ea249d72246e9334a",
     "dlls/winhttp/winhttp_private.h": "ba4f7f387076107da41c97995cc03b89260fe633c546ccbba3459f821641834c",
-    "dlls/wintypes/main.c": "af0e657d462c19090b4791b31837dba960448bfb111e30a90990f5090ec939da"
+    "dlls/wintypes/main.c": "af0e657d462c19090b4791b31837dba960448bfb111e30a90990f5090ec939da",
+    "dlls/windows.applicationmodel/Makefile.in": "2e69c0d30770379b051b003de960780a2e32c6365a247bb9c69d91217b55ac24",
+    "dlls/windows.applicationmodel/main.c": "9f8c16a9144964e47d3daafad840000e73025e46da0041f351fe8c209e5d9874",
+    "dlls/windows.applicationmodel/package_metadata.h": "85aba72ba3b0122ef54b2679101bdd6cafc7a3c7c6a232ea5a6249a86cb47088"
   }
 }
