@@ -260,6 +260,12 @@ typedef struct _STORAGE_PROPERTY_QUERY {
     UCHAR                       AdditionalParameters[1];
 } STORAGE_PROPERTY_QUERY, *PSTORAGE_PROPERTY_QUERY;
 
+typedef struct _DEVICE_TRIM_DESCRIPTOR {
+    DWORD                       Version;
+    DWORD                       Size;
+    BOOLEAN                     TrimEnabled;
+} DEVICE_TRIM_DESCRIPTOR, *PDEVICE_TRIM_DESCRIPTOR;
+
 typedef struct _DEVICE_SEEK_PENALTY_DESCRIPTOR {
     DWORD                       Version;
     DWORD                       Size;

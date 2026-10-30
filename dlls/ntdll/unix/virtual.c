@@ -5572,11 +5572,26 @@ static NTSTATUS allocate_virtual_memory( void **ret, SIZE_T *size_ptr, ULONG typ
  *             NtAllocateVirtualMemory   (NTDLL.@)
  *             ZwAllocateVirtualMemory   (NTDLL.@)
  */
+/* MEM_64K_PAGES is a pageable allocation hint, despite sharing the bits of
+ * MEM_LARGE_PAGES and MEM_PHYSICAL. Windows permits ordinary pages as a
+ * fallback. This does not provide AWE or nonpageable large-page support. */
+static NTSTATUS normalize_64k_page_hint( void *base, SIZE_T size, ULONG attributes, ULONG *type )
+{
+    if ((*type & MEM_64K_PAGES) != MEM_64K_PAGES) return STATUS_SUCCESS;
+    if (((UINT_PTR)base | size) & 0xffff) return STATUS_INVALID_PARAMETER;
+    if (attributes & (MEM_EXTENDED_PARAMETER_NONPAGED | MEM_EXTENDED_PARAMETER_NONPAGED_LARGE |
+                      MEM_EXTENDED_PARAMETER_NONPAGED_HUGE))
+        return STATUS_NOT_SUPPORTED;
+    *type &= ~MEM_64K_PAGES;
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG_PTR zero_bits,
                                          SIZE_T *size_ptr, ULONG type, ULONG protect )
 {
     static const ULONG type_mask = MEM_COMMIT | MEM_RESERVE | MEM_TOP_DOWN | MEM_WRITE_WATCH | MEM_RESET;
     ULONG_PTR limit;
+    NTSTATUS status;
 
     TRACE("%p %p %08lx %x %08x\n", process, *ret, *size_ptr, type, protect );
 
@@ -5586,6 +5601,7 @@ NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG_PTR z
 #ifndef _WIN64
     if (!is_old_wow64() && zero_bits >= 32) return STATUS_INVALID_PARAMETER_3;
 #endif
+    if ((status = normalize_64k_page_hint( *ret, *size_ptr, 0, &type ))) return status;
     if (type & ~type_mask) return STATUS_INVALID_PARAMETER;
 
     if (process != NtCurrentProcess())
@@ -5730,6 +5746,7 @@ NTSTATUS WINAPI NtAllocateVirtualMemoryEx( HANDLE process, PVOID *ret, SIZE_T *s
                                   &align, &attributes, &machine );
     if (status) return status;
 
+    if ((status = normalize_64k_page_hint( *ret, *size_ptr, attributes, &type ))) return status;
     if (type & ~type_mask) return STATUS_INVALID_PARAMETER;
     if (*ret && (align || limit_low || limit_high)) return STATUS_INVALID_PARAMETER;
     if (!*size_ptr) return STATUS_INVALID_PARAMETER;

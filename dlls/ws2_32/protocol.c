@@ -29,6 +29,9 @@ WINE_DECLARE_DEBUG_CHANNEL(winediag);
 
 #define WS_CALL(func, params) WINE_UNIX_CALL( ws_unix_ ## func, params )
 
+#include "local-host-addrinfo.h"
+static struct hostent *get_local_ips( char *hostname );
+
 static char *get_fqdn(void)
 {
     char *ret;
@@ -221,6 +224,23 @@ int WINAPI getaddrinfo( const char *node, const char *service,
 
     ret = do_getaddrinfo( node, service, hints, info );
 
+    if (!ret && node)
+    {
+        char hostname[256];
+        struct gethostname_params params = { hostname, sizeof(hostname) };
+
+        if (!WS_CALL( gethostname, &params ) && local_hostname_loopback_result( node, hostname, hints, *info ))
+        {
+            ret = local_hostname_expand_ipv4( get_local_ips( hostname ), info );
+            if (ret)
+            {
+                freeaddrinfo( *info );
+                *info = NULL;
+                goto cleanup;
+            }
+        }
+    }
+
     if (ret && (!hints || !(hints->ai_flags & AI_NUMERICHOST)) && node)
     {
         if (!fqdn && !(fqdn = get_fqdn()))
@@ -244,6 +264,7 @@ int WINAPI getaddrinfo( const char *node, const char *service,
         }
     }
 
+cleanup:
     free( fqdn );
     free( nodev6 );
 

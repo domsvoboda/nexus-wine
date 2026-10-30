@@ -1,0 +1,10 @@
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
+#pragma makedep register
+#pragma winrt ns_prefix
+import "windows.foundation.diagnostics.idl";
+namespace Windows.Foundation.Diagnostics
+{
+    runtimeclass LoggingChannelOptions;
+    runtimeclass LoggingChannel;
+    runtimeclass LoggingOptions;
+}
