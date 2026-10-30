@@ -72,13 +72,15 @@
     "dlls/windows.applicationmodel/package_deployment.h": "5985a322b3a2e4f2934e8defec42b22621d166b724b1f66c068781da5a6e53cf",
     "nexus/tools/package-register.c": "a2d2ab9ab76480bf427ff2133c073bc2af911abbab7773f5d2dd5c832eb42995",
     "include/Makefile.in": "44cebddbd4f3e95979373fadd8c39438ae08273f7e1726b15d6a6b4104467c34",
-    "include/windows.foundation.diagnostics.idl": "378fa5e6d2dc0187aeaa9a5e4de5b119d7af870bdcf41e546628a3bf5aa7938c",
-    "dlls/windows.foundation.diagnostics/Makefile.in": "1cdc6a8e54f8c8c2aa99272b5fc5e64b5c7a7e568e1b681810895fe08081cc3e",
-    "dlls/windows.foundation.diagnostics/classes.idl": "3da1b49e15c1ee4476f7c76621d81244a1e19101d69e07524f37260bc8da5d1e",
-    "dlls/windows.foundation.diagnostics/main.c": "8c35fdd2e054648dad117f83a810253365d2bbda881dc83697132e8f757e51d7",
+    "include/windows.foundation.diagnostics.idl": "c5c041946e0c556aa2d21ee265ffba765942cc0dbb6b85265aca5d31afce3224",
+    "dlls/windows.foundation.diagnostics/Makefile.in": "3a24d7e21fef0f6cda8eba5ee98cd2cb0380d468a53a71f2236c97b25327d161",
+    "dlls/windows.foundation.diagnostics/classes.idl": "a27965912c77055d0600b7d540a641c44a4c842c12159904703c729e58d475ac",
+    "dlls/windows.foundation.diagnostics/main.c": "962c5dc42959330f7219e87c0ac0c7eda69ac25d070f987e7a5d1d07724e69bf",
     "dlls/windows.foundation.diagnostics/windows.foundation.diagnostics.spec": "e36f0097646fedd51d728a0e0484c1865edf7eb9638226d59f9199bea4c7f7ca",
     "nexus/tests/diagnostics-options.cpp": "d01fbdcf680f8fda37d0120a3148b536dcca470fb133e2389e5f11b1c2c12212",
     "dlls/windows.foundation.diagnostics/channel.c": "eef1ab829e577b5851a43b48d28c1171b0f3bff9ae5a3bf22542242907a92548",
-    "nexus/tests/diagnostics-channel.cpp": "42b149b7575eeaaf0f6d943756821caa4ffe63fb5345aaebc83c6ca66f12c651"
+    "nexus/tests/diagnostics-channel.cpp": "42b149b7575eeaaf0f6d943756821caa4ffe63fb5345aaebc83c6ca66f12c651",
+    "dlls/windows.foundation.diagnostics/event_options.c": "aef1ee47955ec0870f6387a189c89ea7e1823d92692b80428ee817c935bdbd6a",
+    "nexus/tests/diagnostics-event-options.cpp": "149009d845926bf4afa2e29f9d06ad4415737cad2e2b770d8d6dfd883893b483"
   }
 }

@@ -93,4 +93,34 @@ namespace Windows.Foundation.Diagnostics
         interface Windows.Foundation.IClosable;
     }
 
+    typedef enum LoggingOpcode LoggingOpcode;
+    [contract(Windows.Foundation.UniversalApiContract, 1.0)]
+    enum LoggingOpcode { Info=0, Start=1, Stop=2, DCStart=3, DCStop=4, Extension=5, Reply=6, Resume=7, Suspend=8, Send=9, Receive=240 };
+    interface ILoggingOptions;
+    interface ILoggingOptionsFactory;
+    runtimeclass LoggingOptions;
+    [contract(Windows.Foundation.UniversalApiContract, 1.0), exclusiveto(Windows.Foundation.Diagnostics.LoggingOptions), uuid(90bc7850-0192-4f5d-ac26-006adaca12d8)]
+    interface ILoggingOptions : IInspectable
+    {
+        [propget] HRESULT Keywords([out, retval] INT64 *value);
+        [propput] HRESULT Keywords([in] INT64 value);
+        [propget] HRESULT Tags([out, retval] INT32 *value);
+        [propput] HRESULT Tags([in] INT32 value);
+        [propget] HRESULT Task([out, retval] INT16 *value);
+        [propput] HRESULT Task([in] INT16 value);
+        [propget] HRESULT Opcode([out, retval] Windows.Foundation.Diagnostics.LoggingOpcode *value);
+        [propput] HRESULT Opcode([in] Windows.Foundation.Diagnostics.LoggingOpcode value);
+        [propget] HRESULT ActivityId([out, retval] GUID *value);
+        [propput] HRESULT ActivityId([in] GUID value);
+        [propget] HRESULT RelatedActivityId([out, retval] GUID *value);
+        [propput] HRESULT RelatedActivityId([in] GUID value);
+    }
+    [contract(Windows.Foundation.UniversalApiContract, 1.0), exclusiveto(Windows.Foundation.Diagnostics.LoggingOptions), uuid(d713c6cb-98ab-464b-9f22-a3268478368a)]
+    interface ILoggingOptionsFactory : IInspectable
+    { HRESULT CreateWithKeywords([in] INT64 keywords, [out, retval] Windows.Foundation.Diagnostics.LoggingOptions **value); }
+    [activatable(Windows.Foundation.UniversalApiContract, 1.0),
+     activatable(Windows.Foundation.Diagnostics.ILoggingOptionsFactory, Windows.Foundation.UniversalApiContract, 1.0),
+     contract(Windows.Foundation.UniversalApiContract, 1.0), marshaling_behavior(agile), threading(both)]
+    runtimeclass LoggingOptions { [default] interface Windows.Foundation.Diagnostics.ILoggingOptions; }
+
 }

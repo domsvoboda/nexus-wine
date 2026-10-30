@@ -6,4 +6,5 @@ namespace Windows.Foundation.Diagnostics
 {
     runtimeclass LoggingChannelOptions;
     runtimeclass LoggingChannel;
+    runtimeclass LoggingOptions;
 }

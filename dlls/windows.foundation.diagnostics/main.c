@@ -14,6 +14,7 @@
 #define WIDL_using_Windows_Foundation_Diagnostics
 #include "windows.foundation.diagnostics.h"
 
+extern HRESULT event_options_factory(HSTRING name, IActivationFactory **out);
 extern HRESULT channel_factory(HSTRING name, IActivationFactory **out);
 
 static const WCHAR class_name[] = L"Windows.Foundation.Diagnostics.LoggingChannelOptions";
@@ -184,11 +185,15 @@ HRESULT WINAPI DllGetActivationFactory(HSTRING name, IActivationFactory **out)
 {
     UINT32 length;
     const WCHAR *raw;
+    HRESULT hr;
     if (!out) return E_POINTER;
     *out = NULL;
     raw = WindowsGetStringRawBuffer(name, &length);
     if (length != ARRAY_SIZE(class_name) - 1 || wmemcmp(raw, class_name, length))
-        return channel_factory(name, out);
+    {
+        hr = channel_factory(name, out);
+        return hr == CLASS_E_CLASSNOTAVAILABLE ? event_options_factory(name, out) : hr;
+    }
     return factory_QueryInterface(&factory.IActivationFactory_iface, &IID_IActivationFactory, (void **)out);
 }
 HRESULT WINAPI DllGetClassObject(REFCLSID clsid, REFIID iid, void **out)

@@ -3,4 +3,5 @@ IMPORTS = combase ole32 advapi32 bcrypt
 SOURCES = \
 	classes.idl \
 	channel.c \
+	event_options.c \
 	main.c
