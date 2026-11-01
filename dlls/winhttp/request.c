@@ -2423,9 +2423,16 @@ static DWORD refill_buffer( struct request *request, BOOL notify )
 
 static DWORD read_data( struct request *request, void *buffer, DWORD size, DWORD *read, BOOL async )
 {
-    DWORD bytes_read = 0, ret;
+    DWORD bytes_read = 0, count, ret = ERROR_SUCCESS;
 
-    ret = read_data_stream( request, buffer, size, &bytes_read );
+    /* A transport or TLS record boundary is not a completed read. Fill the
+     * caller's buffer, unless the response ends or the stream reports an error. */
+    while (bytes_read < size && !end_of_data_stream( request ))
+    {
+        ret = read_data_stream( request, (char *)buffer + bytes_read, size - bytes_read, &count );
+        if (ret || !count) break;
+        bytes_read += count;
+    }
 
     TRACE( "retrieved %lu bytes (%I64u/%I64u)\n", bytes_read, request->content_read, request->content_length );
     if (end_of_data_stream( request )) finished_reading( request );
