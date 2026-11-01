@@ -4503,6 +4503,9 @@ static DWORD receive_frame( struct socket *socket, DWORD *ret_len, enum socket_o
     TRACE("received %02x frame, final %#x\n", *opcode, *final);
 
     len = hdr[1] & ~MASK_BIT;
+    /* RFC 6455 control frames are final and carry at most 125 bytes. */
+    if ((*opcode & CONTROL_BIT) && (!*final || len > 125))
+        return ERROR_WINHTTP_INVALID_SERVER_RESPONSE;
     if (len == 126)
     {
         USHORT len16;
@@ -4530,13 +4533,13 @@ static void task_socket_send_pong( void *ctx, BOOL abort )
 
     TRACE("running %p\n", ctx);
 
-    if (s->complete_async) complete_send_frame( socket, &s->ovr, NULL );
-    else                   send_frame( socket, SOCKET_OPCODE_PONG, 0, NULL, 0, TRUE, NULL );
+    if (s->complete_async) complete_send_frame( socket, &s->ovr, s->buf );
+    else                   send_frame( socket, SOCKET_OPCODE_PONG, 0, s->buf, s->len, TRUE, NULL );
 
     send_io_complete( &socket->hdr );
 }
 
-static DWORD socket_send_pong( struct socket *socket )
+static DWORD socket_send_pong( struct socket *socket, const void *buf, DWORD len )
 {
     if (socket->hdr.flags & WINHTTP_FLAG_ASYNC)
     {
@@ -4544,14 +4547,18 @@ static DWORD socket_send_pong( struct socket *socket )
         struct socket_send *s;
         DWORD ret = 0;
 
-        if (!(s = malloc( sizeof(*s) ))) return ERROR_OUTOFMEMORY;
+        if (!(s = malloc( sizeof(*s) + len ))) return ERROR_OUTOFMEMORY;
+        /* A queued or overlapped pong must own the ping payload. */
+        s->buf = s + 1;
+        s->len = len;
+        if (len) memcpy( s + 1, buf, len );
 
         AcquireSRWLockExclusive( &socket->send_lock );
         async_send = InterlockedIncrement( &socket->hdr.pending_sends ) > 1;
         if (!async_send)
         {
             memset( &s->ovr, 0, sizeof(s->ovr) );
-            if ((ret = send_frame( socket, SOCKET_OPCODE_PONG, 0, NULL, 0, TRUE, &s->ovr )) == WSA_IO_PENDING)
+            if ((ret = send_frame( socket, SOCKET_OPCODE_PONG, 0, s->buf, s->len, TRUE, &s->ovr )) == WSA_IO_PENDING)
             {
                 async_send = TRUE;
                 complete_async = TRUE;
@@ -4575,7 +4582,7 @@ static DWORD socket_send_pong( struct socket *socket )
         ReleaseSRWLockExclusive( &socket->send_lock );
         return ret;
     }
-    return send_frame( socket, SOCKET_OPCODE_PONG, 0, NULL, 0, TRUE, NULL );
+    return send_frame( socket, SOCKET_OPCODE_PONG, 0, buf, len, TRUE, NULL );
 }
 
 static DWORD socket_drain( struct socket *socket )
@@ -4618,7 +4625,15 @@ static DWORD handle_control_frame( struct socket *socket )
     switch (socket->opcode)
     {
     case SOCKET_OPCODE_PING:
-        return socket_send_pong( socket );
+    {
+        char payload[125];
+        DWORD count;
+
+        if (socket->read_size > sizeof(payload)) return ERROR_WINHTTP_INVALID_SERVER_RESPONSE;
+        if ((ret = receive_bytes( socket, payload, socket->read_size, &count, TRUE ))) return ret;
+        socket->read_size = 0;
+        return socket_send_pong( socket, payload, count );
+    }
 
     case SOCKET_OPCODE_PONG:
         return socket_drain( socket );
@@ -4711,7 +4726,7 @@ static DWORD socket_receive( struct socket *socket, void *buf, DWORD len, DWORD 
                 if (!(socket->opcode & CONTROL_BIT) || (ret = handle_control_frame( socket ))
                     || socket->opcode == SOCKET_OPCODE_CLOSE) break;
             }
-            else if (ret == WSAETIMEDOUT) ret = socket_send_pong( socket );
+            else if (ret == WSAETIMEDOUT) ret = socket_send_pong( socket, NULL, 0 );
             if (ret) break;
         }
     }
