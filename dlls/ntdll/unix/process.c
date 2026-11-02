@@ -959,6 +959,62 @@ done:
     return status;
 }
 
+/* Protect explicitly registered, already pending runtime teardown work.
+ * Keep the event in the syscall layer so a direct NtTerminateProcess cannot
+ * bypass it. No PE callback is invoked from Unix or under the loader lock. */
+static pthread_mutex_t pending_shutdown_mutex = PTHREAD_MUTEX_INITIALIZER;
+static HANDLE pending_shutdown_event;
+
+NTSTATUS unixcall_set_pending_shutdown(void *args)
+{
+    HANDLE event = ULongToHandle( *(const ULONG *)args ), next = NULL, previous;
+    sigset_t sigset;
+    NTSTATUS status;
+    if (event && (status = NtDuplicateObject( NtCurrentProcess(), event,
+            NtCurrentProcess(), &next, SYNCHRONIZE, 0, 0 ))) return status;
+    server_enter_uninterrupted_section( &pending_shutdown_mutex, &sigset );
+    previous = pending_shutdown_event;
+    pending_shutdown_event = next;
+    server_leave_uninterrupted_section( &pending_shutdown_mutex, &sigset );
+    if (previous) NtClose( previous );
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS unixcall_wait_pending_shutdown(void *args)
+{
+    RTL_CRITICAL_SECTION *loader = NtCurrentTeb()->Peb->LoaderLock;
+    HANDLE event = NULL;
+    LARGE_INTEGER timeout;
+    NTSTATUS status = STATUS_SUCCESS;
+    sigset_t sigset;
+    (void)args;
+    if (process_exiting || (loader && loader->OwningThread == NtCurrentTeb()->ClientId.UniqueThread))
+        return STATUS_SUCCESS;
+#ifdef _WIN64
+    if (wow_peb && wow_peb->LoaderLock)
+    {
+        const struct { ULONG debug; LONG lock_count, recursion; ULONG owner; } *lock32 =
+            ULongToPtr( wow_peb->LoaderLock );
+        if (lock32->owner == GetCurrentThreadId()) return STATUS_SUCCESS;
+    }
+#endif
+    server_enter_uninterrupted_section( &pending_shutdown_mutex, &sigset );
+    if (pending_shutdown_event)
+        status = NtDuplicateObject( NtCurrentProcess(), pending_shutdown_event,
+                                    NtCurrentProcess(), &event, SYNCHRONIZE, 0, 0 );
+    server_leave_uninterrupted_section( &pending_shutdown_mutex, &sigset );
+    if (!event) return status;
+    /* A bounded shutdown wait, never a running-game timeout. The event is
+     * independent of the registrant's handle and can be signalled/cleared
+     * concurrently without holding this lock or calling into the title. */
+    timeout.QuadPart = -(LONGLONG)60 * 10000000;
+    TRACE("waiting for registered shutdown work\n");
+    status = NtWaitForSingleObject( event, FALSE, &timeout );
+    if (status) ERR("pending shutdown work was not completed, status %#x\n", status);
+    NtClose( event );
+    return status;
+}
+
 BOOL terminate_process_running;
 LONG terminate_process_exit_code;
 
@@ -971,6 +1027,16 @@ NTSTATUS WINAPI NtTerminateProcess( HANDLE handle, LONG exit_code )
     BOOL self;
 
     TRACE("handle %p, exit_code %d, process_exiting %d.\n", handle, (int)exit_code, process_exiting);
+
+    if (!exit_code && !process_exiting && handle)
+    {
+        PROCESS_BASIC_INFORMATION info;
+        BOOL current = handle == GetCurrentProcess();
+        if (!current && !NtQueryInformationProcess( handle, ProcessBasicInformation,
+                                                    &info, sizeof(info), NULL ))
+            current = info.UniqueProcessId == GetCurrentProcessId();
+        if (current) unixcall_wait_pending_shutdown(NULL);
+    }
 
     if (handle == GetCurrentProcess())
     {
