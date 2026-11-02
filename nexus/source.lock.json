@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "base": "7fc704ef49c50e9702c9983a5250d5738697bb04",
-  "xgameruntime": "02787d4228d94f54d5bb50d33e2f0b9891d1029a",
+  "xgameruntime": "455b1ba9c59984f9478af062fa1aec496bc58ccc",
   "files": {
     "loader/wine.inf.in": "7eab3069356f4bd9c69992ec690f21325a209e7996a6fa051d28450c91f413af",
     "dlls/windows.storage.applicationdata/Makefile.in": "87fe136e13ec37bb0222263268548657e782eebe91804729780522bd788bbe6c",
@@ -26,7 +26,7 @@
     "dlls/ncrypt/main.c": "3e02cce2d6a01af43f82d8a87d06b6c45105d7ef5617c34e92d3960274939007",
     "dlls/ncrypt/ncrypt_internal.h": "2b5636b57374b6bc8ae96c5603501d273fdd3734c76750e2ae4fd6bebcebd366",
     "dlls/ncrypt/tests/ncrypt.c": "37d957e4e4d37366fb28c8ccf578e905489a8adf739d11e78006d4804ba66478",
-    "dlls/ntdll/unix/loader.c": "dae478986539adbe19aafd53786b74da98ce5942180c0b21b702d418021de2b2",
+    "dlls/ntdll/unix/loader.c": "cb34137a120d7f009efb2ca88cd803ffe162faaaae64a0650d0df20f2051fd27",
     "dlls/propsys/propsys_main.c": "250b3489cc5e679fe9012515b645ca9c6570f59ed8779d7c7fd7113facacda6a",
     "dlls/twinapi.appcore/Makefile.in": "5e4bc0304134b666989cfb01858d34878173e858679e7d6745c1ccde987cce45",
     "dlls/twinapi.appcore/appstate-registration.h": "f011a711a77fd91a7d30d63f91adebcc31a2c161130af1160cd2b960f812f016",
@@ -58,9 +58,9 @@
     "dlls/winhttp/Makefile.in": "44ce72f547cf0d6f5174cfd53685b663a247ae98803c19af489e34c483fadf3a",
     "dlls/winhttp/http2.c": "ae8cbf0bf03fc0a9c6b528b34637ade626ed51664bac425b08578075a9f72009",
     "dlls/winhttp/net.c": "754d730730ecf71faba61fd9595b0f396fb0c4f9816138a4e2a1b761fdae54c7",
-    "dlls/winhttp/request.c": "a3a35eaec1867f85eed6a64ae40ebf014c39897739c57fd1b645efa8780136fb",
+    "dlls/winhttp/request.c": "bfb8a4d6a21bd67ed57521e797bf49f570d90fd24cc44f0fa2cfe63061305ce0",
     "dlls/winhttp/session.c": "6d746fbcae124f8b9db86c10d6708da79f793a75381db139354c6256ab0e02b9",
-    "dlls/winhttp/tests/winhttp.c": "42182288b86174afba8939e69b121793272c936c70c5709ea249d72246e9334a",
+    "dlls/winhttp/tests/winhttp.c": "7a68a25f51d288ad1085ae66233cfe80059d847c7d9c73a3d32bdf9755fa0d6a",
     "dlls/winhttp/winhttp_private.h": "ba4f7f387076107da41c97995cc03b89260fe633c546ccbba3459f821641834c",
     "dlls/wintypes/main.c": "af0e657d462c19090b4791b31837dba960448bfb111e30a90990f5090ec939da",
     "dlls/windows.applicationmodel/Makefile.in": "618bfa0d1c29fcb52382a8cd0554dea4bc5ec8d49275408af9fd0c7cbe2888aa",
@@ -84,6 +84,11 @@
     "nexus/tests/diagnostics-event-options.cpp": "149009d845926bf4afa2e29f9d06ad4415737cad2e2b770d8d6dfd883893b483",
     "dlls/ws2_32/protocol.c": "dadb2ac58d3f1da104fa0080a1c06d04d7e8bd37214844a8d5dd95293db755bf",
     "dlls/ws2_32/local-host-addrinfo.h": "7f229adc3efb3faa38aaf7dfae3668d767b41e407773fcac292f46ced13e604f",
-    "nexus/tests/local-host-addresses.c": "44a17abb8f9239d52f16bbc2190aa0311b4bb3b58b2812c0ebd3b002124bf457"
+    "nexus/tests/local-host-addresses.c": "44a17abb8f9239d52f16bbc2190aa0311b4bb3b58b2812c0ebd3b002124bf457",
+    "dlls/ntdll/loader.c": "a635dd3883057759afdc6c668caea7667033f5324ceb67c89d9d087eaa0c2442",
+    "dlls/ntdll/ntdll.spec": "b5fda2619f956bbb1107def8c3efc247fc7f23de976f3b8b254f4bb8640f7c54",
+    "dlls/ntdll/unix/process.c": "12c3e6ba75dd6320c401b080e265dbb1180660a8e6465643c30ba692ae8ae61a",
+    "dlls/ntdll/unix/unix_private.h": "d5119987b0e5088cd26804c6a89febd3fa9a552c29639230f76f6d8d9d9abf3f",
+    "dlls/ntdll/unixlib.h": "0e3668417ce43ce70335841d4221c28adda6a6f252bd812d1285be5a1562f9d3"
   }
 }
