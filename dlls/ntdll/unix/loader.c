@@ -1313,6 +1313,8 @@ static const unixlib_entry_t unix_call_funcs[] =
     steamclient_setup_trampolines,
     debugstr_pc,
     unixcall_compat_wine_nt_to_unix_file_name,
+    unixcall_set_pending_shutdown,
+    unixcall_wait_pending_shutdown,
 };
 
 
@@ -1412,6 +1414,8 @@ const unixlib_entry_t unix_call_wow64_funcs[] =
     wow64_steamclient_setup_trampolines,
     wow64_debugstr_pc,
     wow64_compat_wine_nt_to_unix_file_name,
+    unixcall_set_pending_shutdown,
+    unixcall_wait_pending_shutdown,
 };
 
 #endif  /* _WIN64 */

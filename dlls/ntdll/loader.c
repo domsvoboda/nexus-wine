@@ -4122,11 +4122,21 @@ void WINAPI LdrShutdownProcess(void)
 }
 
 
+/* Internal Wine contract for an opt-in runtime's pending asynchronous work.
+ * The syscall layer owns a duplicate handle; the original may be closed. */
+NTSTATUS WINAPI __wine_set_pending_shutdown_event( HANDLE event )
+{
+    ULONG handle = HandleToULong( event );
+    return WINE_UNIX_CALL( unix_set_pending_shutdown, &handle );
+}
+
 /******************************************************************
  *		RtlExitUserProcess (NTDLL.@)
  */
 void WINAPI RtlExitUserProcess( DWORD status )
 {
+    /* Wait before taking the loader lock and terminating other threads. */
+    if (!status) WINE_UNIX_CALL( unix_wait_pending_shutdown, NULL );
     RtlEnterCriticalSection( &loader_section );
     RtlAcquirePebLock();
     NtTerminateProcess( 0, status );

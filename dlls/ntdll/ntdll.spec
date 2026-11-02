@@ -1771,3 +1771,5 @@
 @ cdecl wine_get_version()
 @ cdecl wine_get_build_id()
 @ cdecl wine_get_host_version(ptr ptr)
+
+@ stdcall -private __wine_set_pending_shutdown_event(long)
