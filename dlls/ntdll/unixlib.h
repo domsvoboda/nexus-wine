@@ -124,6 +124,8 @@ enum ntdll_unix_funcs
     unix_steamclient_setup_trampolines,
     unix_debugstr_pc,
     unix_compat_wine_nt_to_unix_file_name,
+    unix_set_pending_shutdown,
+    unix_wait_pending_shutdown,
 };
 
 extern unixlib_handle_t __wine_unixlib_handle;

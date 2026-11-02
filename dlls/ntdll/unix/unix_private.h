@@ -724,4 +724,8 @@ static inline int is_gdt_sel( WORD sel )
 
 #endif  /* defined(__i386__) || defined(__x86_64__) */
 
+
+extern NTSTATUS unixcall_set_pending_shutdown(void *args);
+extern NTSTATUS unixcall_wait_pending_shutdown(void *args);
+
 #endif /* __NTDLL_UNIX_PRIVATE_H */
