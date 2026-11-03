@@ -1438,6 +1438,30 @@ end:
     return hrequest;
 }
 
+/* Private versioned Wine/XGR contract. Unlike WinHttpCloseHandle, this only
+ * cancels transport; the caller retains ownership of the public handle and
+ * must keep it open until all its synchronous API calls have drained. */
+BOOL WINAPI __wine_winhttp_cancel_request_v1( HINTERNET handle )
+{
+    struct request *request;
+
+    if (!(request = (struct request *)grab_object( handle )))
+    {
+        SetLastError( ERROR_INVALID_HANDLE );
+        return FALSE;
+    }
+    if (request->hdr.type != WINHTTP_HANDLE_TYPE_REQUEST)
+    {
+        release_object( &request->hdr );
+        SetLastError( ERROR_WINHTTP_INCORRECT_HANDLE_TYPE );
+        return FALSE;
+    }
+    cancel_request_connection( request );
+    release_object( &request->hdr );
+    SetLastError( ERROR_SUCCESS );
+    return TRUE;
+}
+
 /***********************************************************************
  *          WinHttpCloseHandle (winhttp.@)
  */

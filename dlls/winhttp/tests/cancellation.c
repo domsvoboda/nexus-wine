@@ -144,12 +144,60 @@ static void test_cancel( enum operation operation )
     CloseHandle( f.closed );
 }
 
+static void test_private_cancel(void)
+{
+    BOOL (WINAPI *abort_request)(HINTERNET);
+    HINTERNET session, connection, request, other, socket;
+    DWORD_PTR context = 0x1234, actual = 0;
+    DWORD size = sizeof(actual);
+    BOOL ret;
+
+    abort_request = (void *)GetProcAddress( GetModuleHandleW( L"winhttp.dll" ),
+                                           "__wine_winhttp_cancel_request_v1" );
+    if (!abort_request)
+    {
+        skip( "Private Wine/XGR v1 cancellation is not available.\n" );
+        return;
+    }
+    session = WinHttpOpen( L"private-cancel-test", WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, 0 );
+    connection = WinHttpConnect( session, L"127.0.0.1", 1, 0 );
+    request = WinHttpOpenRequest( connection, L"GET", L"/never-sent", NULL, NULL, NULL, 0 );
+    ret = abort_request( session );
+    ok( !ret && GetLastError() == ERROR_WINHTTP_INCORRECT_HANDLE_TYPE,
+        "wrong-type cancellation: %u %lu\n", ret, GetLastError() );
+    ret = WinHttpSetOption( request, WINHTTP_OPTION_CONTEXT_VALUE, &context, sizeof(context) );
+    ok( ret, "context option failed: %lu\n", GetLastError() );
+    ret = abort_request( request );
+    ok( ret, "cancel failed: %lu\n", GetLastError() );
+    ret = abort_request( request );
+    ok( ret, "repeated cancel failed: %lu\n", GetLastError() );
+    ret = WinHttpQueryOption( request, WINHTTP_OPTION_CONTEXT_VALUE, &actual, &size );
+    ok( ret && actual == context, "cancellation did not preserve handle: %u %Ix\n", ret, actual );
+    other = WinHttpOpenRequest( connection, L"GET", L"/other", NULL, NULL, NULL, 0 );
+    ok( !!other && other != request, "request handle was recycled\n" );
+    socket = WinHttpWebSocketCompleteUpgrade( request, 0 );
+    ok( !socket && GetLastError() == ERROR_WINHTTP_OPERATION_CANCELLED,
+        "cancelled upgrade: %p %lu\n", socket, GetLastError() );
+    ret = WinHttpSendRequest( request, NULL, 0, NULL, 0, 0, 0 );
+    ok( !ret && GetLastError() == ERROR_WINHTTP_OPERATION_CANCELLED,
+        "cancelled request entered transport: %u %lu\n", ret, GetLastError() );
+    ret = WinHttpCloseHandle( request );
+    ok( ret, "owner close failed: %lu\n", GetLastError() );
+    ret = abort_request( request );
+    ok( !ret && GetLastError() == ERROR_INVALID_HANDLE,
+        "closed handle cancellation: %u %lu\n", ret, GetLastError() );
+    WinHttpCloseHandle( other );
+    WinHttpCloseHandle( connection );
+    WinHttpCloseHandle( session );
+}
+
 START_TEST(cancellation)
 {
     WSADATA data;
     enum operation operation;
     int ret = WSAStartup( MAKEWORD(2,2), &data );
     ok( !ret, "WSAStartup failed: %u\n", ret );
+    test_private_cancel();
     for (operation = SEND_HEADERS; operation <= SEND_BODY; ++operation)
     {
         winetest_push_context( "operation %u", operation );

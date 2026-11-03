@@ -2460,7 +2460,7 @@ static DWORD read_data( struct request *request, void *buffer, DWORD size, DWORD
 
     /* A transport or TLS record boundary is not a completed read. Fill the
      * caller's buffer, unless the response ends or the stream reports an error. */
-    while (bytes_read < size && !end_of_data_stream( request ))
+    while (!request->cancelled && bytes_read < size && !end_of_data_stream( request ))
     {
         ret = read_data_stream( request, (char *)buffer + bytes_read, size - bytes_read, &count );
         if (ret || !count) break;
@@ -2688,6 +2688,8 @@ static DWORD send_request( struct request *request, const WCHAR *headers, DWORD 
     BOOL chunked;
 
     TRACE( "request state %d.\n", request->state );
+
+    if (request->cancelled) { ret = ERROR_WINHTTP_OPERATION_CANCELLED; goto end; }
 
     request->read_reply_status = ERROR_WINHTTP_INCORRECT_HANDLE_STATE;
     request->read_reply_len = 0;
@@ -3467,6 +3469,8 @@ static DWORD receive_response( struct request *request )
 
     TRACE( "request state %d.\n", request->state );
 
+    if (request->cancelled) { ret = ERROR_WINHTTP_OPERATION_CANCELLED; goto done; }
+
     switch (request->state)
     {
     case REQUEST_RESPONSE_RECURSIVE_REQUEST:
@@ -3627,6 +3631,8 @@ static BOOL skip_async_queue( struct request *request, BOOL *wont_block, DWORD t
 static DWORD query_data_available( struct request *request, DWORD *available, BOOL async )
 {
     DWORD ret = ERROR_SUCCESS, count = 0;
+
+    if (request->cancelled) { ret = ERROR_WINHTTP_OPERATION_CANCELLED; goto done; }
 
     if (!request->content_length || end_of_data_stream( request )) goto done;
 
@@ -3863,7 +3869,8 @@ static DWORD write_data( struct request *request, const void *buffer, DWORD to_w
     DWORD ret;
     int num_bytes;
 
-    if (request->netconn && request->netconn->http2)
+    if (request->cancelled) ret = ERROR_WINHTTP_OPERATION_CANCELLED;
+    else if (request->netconn && request->netconn->http2)
         ret = http2_write_data( request->netconn, buffer, to_write, &num_bytes );
     else ret = netconn_send( request->netconn, buffer, to_write, &num_bytes, NULL );
 
