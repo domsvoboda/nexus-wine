@@ -2393,7 +2393,7 @@ static void finished_reading( struct request *request )
         struct gzip_stream *stream = (struct gzip_stream *)request->data_stream;
         if (stream->buf_size || !stream->parent_stream->vtbl->end_of_data( stream->parent_stream, request )) close = TRUE;
     }
-    if (request->netconn->http2 || request->netconn->socket == -1) close = TRUE;
+    if (request->netconn->http2 || !netconn_is_valid( request->netconn )) close = TRUE;
     else if (request->hdr.disable_flags & WINHTTP_DISABLE_KEEP_ALIVE) close = TRUE;
     else if (!query_headers( request, WINHTTP_QUERY_CONNECTION, NULL, connection, &size, NULL ) ||
              !query_headers( request, WINHTTP_QUERY_PROXY_CONNECTION, NULL, connection, &size, NULL ))

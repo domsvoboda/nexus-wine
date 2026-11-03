@@ -109,6 +109,7 @@ struct netconn
 {
     struct list entry;
     LONG refs;
+    LONG cancelled;
     int socket;
     struct sockaddr_storage sockaddr;
     BOOL secure; /* SSL active on connection? */

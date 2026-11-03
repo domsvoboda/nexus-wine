@@ -706,13 +706,14 @@ DWORD netconn_recv( struct netconn *conn, void *buf, size_t len, int flags, int 
 
 void netconn_cancel_io( struct netconn *conn )
 {
-    SOCKET socket = InterlockedExchange( (LONG *)&conn->socket, -1 );
+    if (InterlockedExchange( &conn->cancelled, 1 )) return;
 
-    if (socket == -1) return;
-    /* WSASend may be waiting for an outstanding operation owned by another
-     * thread. Cancel it before dropping the socket handle. */
-    CancelIoEx( (HANDLE)(ULONG_PTR)socket, NULL );
-    closesocket( socket );
+    /* Keep the numeric socket allocated until the last netconn reference
+     * drains: a worker may have captured it but not yet entered Winsock.
+     * Shutdown rejects such later submissions; CancelIoEx then drains I/O
+     * already submitted, including blocked synchronous WSASend calls. */
+    shutdown( conn->socket, SD_BOTH );
+    CancelIoEx( (HANDLE)(ULONG_PTR)conn->socket, NULL );
 }
 
 ULONG netconn_query_data_available( struct netconn *conn )
@@ -734,7 +735,7 @@ DWORD netconn_set_timeout( struct netconn *netconn, BOOL send, int value )
 
 BOOL netconn_is_valid( struct netconn *netconn )
 {
-    return netconn && netconn->socket != -1;
+    return netconn && netconn->socket != -1 && !netconn->cancelled;
 }
 
 BOOL netconn_is_alive( struct netconn *netconn )
@@ -744,6 +745,8 @@ BOOL netconn_is_alive( struct netconn *netconn )
     char b;
     DWORD err;
     BOOL eof;
+
+    if (!netconn_is_valid( netconn )) return FALSE;
 
     set_blocking( netconn, FALSE );
     if (netconn->secure)
