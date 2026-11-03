@@ -2130,6 +2130,37 @@ static DWORD ensure_cred_handle( struct request *request )
     return ERROR_SUCCESS;
 }
 
+/* The API/task keeps the request alive while blocked. Closing its public
+ * handle aborts transport without freeing worker-owned state. */
+void cancel_request_connection( struct request *request )
+{
+    TRACE( "cancelling request %p\n", request );
+    InterlockedExchange( &request->cancelled, 1 );
+    AcquireSRWLockExclusive( &request->connection_lock );
+    if (request->netconn && !request->websocket_transferred) netconn_cancel_io( request->netconn );
+    ReleaseSRWLockExclusive( &request->connection_lock );
+}
+
+static void attach_connection( struct request *request, struct netconn *netconn )
+{
+    AcquireSRWLockExclusive( &request->connection_lock );
+    request->netconn = netconn;
+    request->websocket_transferred = FALSE;
+    if (request->cancelled) netconn_cancel_io( netconn );
+    ReleaseSRWLockExclusive( &request->connection_lock );
+}
+
+static struct netconn *detach_connection( struct request *request )
+{
+    struct netconn *netconn;
+
+    AcquireSRWLockExclusive( &request->connection_lock );
+    netconn = request->netconn;
+    request->netconn = NULL;
+    ReleaseSRWLockExclusive( &request->connection_lock );
+    return netconn;
+}
+
 static DWORD open_connection( struct request *request )
 {
     BOOL is_secure = request->hdr.flags & WINHTTP_FLAG_SECURE;
@@ -2249,7 +2280,7 @@ static DWORD open_connection( struct request *request )
         netconn_set_timeout( netconn, FALSE, request_receive_response_timeout( request ));
         netconn->http_protocols = (is_secure && !(request->flags & REQUEST_FLAG_WEBSOCKET_UPGRADE)) ? request->http_protocols : 0;
 
-        request->netconn = netconn;
+        attach_connection( request, netconn );
 
         if (is_secure)
         {
@@ -2257,7 +2288,7 @@ static DWORD open_connection( struct request *request )
             {
                 if ((ret = secure_proxy_connect( request )))
                 {
-                    request->netconn = NULL;
+                    detach_connection( request );
                     free( addressW );
                     netconn_release( netconn );
                     return ret;
@@ -2273,7 +2304,7 @@ static DWORD open_connection( struct request *request )
                                                (request->http_protocols & WINHTTP_PROTOCOL_FLAG_HTTP2) &&
                                                !(request->flags & REQUEST_FLAG_WEBSOCKET_UPGRADE) )))
             {
-                request->netconn = NULL;
+                detach_connection( request );
                 free( addressW );
                 netconn_release( netconn );
                 return ret;
@@ -2288,12 +2319,13 @@ static DWORD open_connection( struct request *request )
 
         netconn_set_timeout( netconn, TRUE, request->send_timeout );
         netconn_set_timeout( netconn, FALSE, request_receive_response_timeout( request ));
-        request->netconn = netconn;
+        attach_connection( request, netconn );
     }
 
     if (netconn->secure && !(request->server_cert = netconn_get_certificate( netconn )))
     {
         free( addressW );
+        detach_connection( request );
         netconn_release( netconn );
         return ERROR_WINHTTP_SECURE_FAILURE;
     }
@@ -2307,10 +2339,8 @@ done:
 
 void close_connection( struct request *request )
 {
-    if (!request->netconn) return;
-
-    netconn_release( request->netconn );
-    request->netconn = NULL;
+    struct netconn *netconn = detach_connection( request );
+    if (netconn) netconn_release( netconn );
 }
 
 static DWORD add_host_header( struct request *request, DWORD modifier )
@@ -2354,6 +2384,7 @@ static void finished_reading( struct request *request )
     BOOL close = FALSE, close_request_headers;
     WCHAR connection[20];
     DWORD size = sizeof(connection);
+    struct netconn *netconn;
 
     if (!request->netconn) return;
 
@@ -2376,15 +2407,17 @@ static void finished_reading( struct request *request )
             (!query_headers( request, WINHTTP_QUERY_CONNECTION | WINHTTP_QUERY_FLAG_REQUEST_HEADERS, NULL, connection, &size, NULL )
              || !query_headers( request, WINHTTP_QUERY_PROXY_CONNECTION | WINHTTP_QUERY_FLAG_REQUEST_HEADERS, NULL, connection, &size, NULL ))
              && !wcsicmp( connection, L"close" );
+    /* Detach before release/pooling, so close cannot abort a reused socket. */
+    netconn = detach_connection( request );
+    if (request->cancelled) close = TRUE;
     if (close || close_request_headers)
     {
         if (close_request_headers) send_callback( &request->hdr, WINHTTP_CALLBACK_STATUS_CLOSING_CONNECTION, 0, 0 );
-        netconn_release( request->netconn );
+        netconn_release( netconn );
         if (close_request_headers) send_callback( &request->hdr, WINHTTP_CALLBACK_STATUS_CONNECTION_CLOSED, 0, 0 );
     }
     else
-        cache_connection( request->netconn );
-    request->netconn = NULL;
+        cache_connection( netconn );
 }
 
 /* read some more data into the read buffer */
@@ -2436,6 +2469,7 @@ static DWORD read_data( struct request *request, void *buffer, DWORD size, DWORD
 
     TRACE( "retrieved %lu bytes (%I64u/%I64u)\n", bytes_read, request->content_read, request->content_length );
     if (end_of_data_stream( request )) finished_reading( request );
+    if (request->cancelled) ret = ERROR_WINHTTP_OPERATION_CANCELLED;
     if (async)
     {
         if (!ret) send_callback( &request->hdr, WINHTTP_CALLBACK_STATUS_READ_COMPLETE, buffer, bytes_read );
@@ -2810,6 +2844,7 @@ static DWORD send_request( struct request *request, const WCHAR *headers, DWORD 
     }
 
 end:
+    if (request->cancelled) ret = ERROR_WINHTTP_OPERATION_CANCELLED;
     if (async)
     {
         if (!ret) send_callback( &request->hdr, WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE, NULL, 0 );
@@ -3343,8 +3378,7 @@ static DWORD handle_redirect( struct request *request, DWORD status )
                 goto end;
             }
 
-            netconn_release( request->netconn );
-            request->netconn = NULL;
+            close_connection( request );
             request->content_length = request->content_read = 0;
             reset_data_stream( request );
         }
@@ -3522,6 +3556,7 @@ static DWORD receive_response( struct request *request )
     return async_mode ? queue_receive_response( request ) : receive_response( request );
 
 done:
+    if (request->cancelled) ret = ERROR_WINHTTP_OPERATION_CANCELLED;
     if (!ret)
     {
         request->state = REQUEST_RESPONSE_STATE_RESPONSE_RECEIVED;
@@ -3612,6 +3647,7 @@ static DWORD query_data_available( struct request *request, DWORD *available, BO
     }
 
 done:
+    if (request->cancelled) ret = ERROR_WINHTTP_OPERATION_CANCELLED;
     TRACE( "%lu bytes available\n", count );
     if (async)
     {
@@ -3831,6 +3867,7 @@ static DWORD write_data( struct request *request, const void *buffer, DWORD to_w
         ret = http2_write_data( request->netconn, buffer, to_write, &num_bytes );
     else ret = netconn_send( request->netconn, buffer, to_write, &num_bytes, NULL );
 
+    if (request->cancelled) ret = ERROR_WINHTTP_OPERATION_CANCELLED;
     if (async)
     {
         if (!ret) send_callback( &request->hdr, WINHTTP_CALLBACK_STATUS_WRITE_COMPLETE, &num_bytes, sizeof(num_bytes) );
@@ -4046,15 +4083,26 @@ HINTERNET WINAPI WinHttpWebSocketCompleteUpgrade( HINTERNET hrequest, DWORD_PTR 
     InitializeSRWLock( &socket->send_lock );
     init_queue( &socket->send_q );
     init_queue( &socket->recv_q );
+    AcquireSRWLockExclusive( &request->connection_lock );
+    if (request->cancelled || !request->netconn)
+    {
+        ReleaseSRWLockExclusive( &request->connection_lock );
+        free( socket->read_buffer );
+        free( socket );
+        release_object( &request->hdr );
+        SetLastError( ERROR_WINHTTP_OPERATION_CANCELLED );
+        return NULL;
+    }
     netconn_addref( request->netconn );
     socket->netconn = request->netconn;
-
     netconn_set_timeout( socket->netconn, FALSE, socket->keepalive_interval );
+    hsocket = alloc_handle( &socket->hdr );
+    if (hsocket) request->websocket_transferred = TRUE;
+    ReleaseSRWLockExclusive( &request->connection_lock );
 
-    if ((hsocket = alloc_handle( &socket->hdr )))
-    {
+    /* HANDLE_CREATED may itself close the HTTP request. */
+    if (hsocket)
         send_callback( &request->hdr, WINHTTP_CALLBACK_STATUS_HANDLE_CREATED, &hsocket, sizeof(hsocket) );
-    }
 
     release_object( &socket->hdr );
     release_object( &request->hdr );

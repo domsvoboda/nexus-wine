@@ -708,6 +708,10 @@ void netconn_cancel_io( struct netconn *conn )
 {
     SOCKET socket = InterlockedExchange( (LONG *)&conn->socket, -1 );
 
+    if (socket == -1) return;
+    /* WSASend may be waiting for an outstanding operation owned by another
+     * thread. Cancel it before dropping the socket handle. */
+    CancelIoEx( (HANDLE)(ULONG_PTR)socket, NULL );
     closesocket( socket );
 }
 

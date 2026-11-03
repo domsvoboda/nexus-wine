@@ -233,6 +233,8 @@ struct request
     void *optional;
     DWORD optional_len;
     struct netconn *netconn;
+    SRWLOCK connection_lock; /* protects attachment against close cancellation */
+    BOOL websocket_transferred;
     DWORD security_flags;
     BOOL check_revocation;
     const CERT_CONTEXT *server_cert;
@@ -435,6 +437,7 @@ BOOL free_handle( HINTERNET );
 
 void send_callback( struct object_header *, DWORD, LPVOID, DWORD );
 void close_connection( struct request * );
+void cancel_request_connection( struct request * );
 void init_queue( struct queue *queue );
 void stop_queue( struct queue * );
 
