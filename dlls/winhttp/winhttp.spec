@@ -47,3 +47,6 @@
 @ stdcall WinHttpWebSocketShutdown(ptr long ptr long)
 @ stdcall WinHttpWriteData(ptr ptr long ptr)
 @ stdcall WinHttpWriteProxySettings(ptr long ptr)
+
+# Private versioned transport abort, does not close/recycle HINTERNET.
+@ stdcall -private __wine_winhttp_cancel_request_v1(ptr)
