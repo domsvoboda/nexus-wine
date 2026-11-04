@@ -1315,7 +1315,7 @@ static BOOL request_set_option( struct object_header *hdr, DWORD option, void *b
 
 static void request_handle_closing( struct object_header *hdr )
 {
-    InterlockedExchange( &((struct request *)hdr)->cancelled, 1 );
+    cancel_request_connection( (struct request *)hdr );
 }
 
 static const struct object_vtbl request_vtbl =
@@ -1413,6 +1413,7 @@ HINTERNET WINAPI WinHttpOpenRequest( HINTERNET hconnect, const WCHAR *verb, cons
     request->websocket_send_buffer_size = connect->session->websocket_send_buffer_size;
     request->websocket_set_send_buffer_size = request->websocket_send_buffer_size;
     request->read_reply_status = ERROR_WINHTTP_INCORRECT_HANDLE_STATE;
+    InitializeSRWLock( &request->connection_lock );
     request->netconn_stream.data_stream.vtbl = &netconn_stream_vtbl;
     request->data_stream = &request->netconn_stream.data_stream;
 
@@ -1435,6 +1436,30 @@ end:
     TRACE("returning %p\n", hrequest);
     if (hrequest) SetLastError( ERROR_SUCCESS );
     return hrequest;
+}
+
+/* Private versioned Wine/XGR contract. Unlike WinHttpCloseHandle, this only
+ * cancels transport; the caller retains ownership of the public handle and
+ * must keep it open until all its synchronous API calls have drained. */
+BOOL WINAPI __wine_winhttp_cancel_request_v1( HINTERNET handle )
+{
+    struct request *request;
+
+    if (!(request = (struct request *)grab_object( handle )))
+    {
+        SetLastError( ERROR_INVALID_HANDLE );
+        return FALSE;
+    }
+    if (request->hdr.type != WINHTTP_HANDLE_TYPE_REQUEST)
+    {
+        release_object( &request->hdr );
+        SetLastError( ERROR_WINHTTP_INCORRECT_HANDLE_TYPE );
+        return FALSE;
+    }
+    cancel_request_connection( request );
+    release_object( &request->hdr );
+    SetLastError( ERROR_SUCCESS );
+    return TRUE;
 }
 
 /***********************************************************************
