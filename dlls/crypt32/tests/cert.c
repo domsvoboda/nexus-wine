@@ -29,6 +29,7 @@
 #include <winerror.h>
 #include <wincrypt.h>
 #include <bcrypt.h>
+#include <ncrypt.h>
 
 #include "wine/test.h"
 
@@ -4520,6 +4521,68 @@ static void test_VerifySignature(void)
     CertFreeCertificateContext(cert);
 }
 
+static void testCreateSelfSignNcryptCert(void)
+{
+    static const WCHAR provider_name[] = L"Microsoft Software Key Storage Provider";
+    NCRYPT_PROV_HANDLE provider = 0;
+    NCRYPT_KEY_HANDLE key = 0;
+    PCCERT_CONTEXT context = NULL;
+    CERT_NAME_BLOB name = { sizeof(subjectName), subjectName };
+    CRYPT_KEY_PROV_INFO *info;
+    SECURITY_STATUS status;
+    WCHAR key_name[300];
+    DWORD size, length, i;
+
+    for (i = 0; i < ARRAY_SIZE(key_name) - 1; i++) key_name[i] = L'a' + (i % 26);
+    key_name[ARRAY_SIZE(key_name) - 1] = 0;
+
+    status = NCryptOpenStorageProvider(&provider, provider_name, 0);
+    ok(!status, "NCryptOpenStorageProvider failed: %#lx\n", status);
+    if (status) return;
+
+    status = NCryptCreatePersistedKey(provider, &key, BCRYPT_ECDSA_P256_ALGORITHM, key_name, 0,
+                                      NCRYPT_OVERWRITE_KEY_FLAG);
+    ok(!status, "NCryptCreatePersistedKey failed: %#lx\n", status);
+    if (status) goto done;
+    status = NCryptFinalizeKey(key, 0);
+    ok(!status, "NCryptFinalizeKey failed: %#lx\n", status);
+    if (status) goto done;
+
+    context = CertCreateSelfSignCertificate(key, &name, 0, NULL, NULL, NULL, NULL, NULL);
+    ok(!!context, "CertCreateSelfSignCertificate failed: %#lx\n", GetLastError());
+    if (!context) goto done;
+
+    ok(!strcmp(context->pCertInfo->SignatureAlgorithm.pszObjId, szOID_ECDSA_SHA256),
+       "unexpected signature algorithm %s\n", debugstr_a(context->pCertInfo->SignatureAlgorithm.pszObjId));
+    length = CertGetPublicKeyLength(X509_ASN_ENCODING, &context->pCertInfo->SubjectPublicKeyInfo);
+    ok(length == 256, "unexpected public key length %lu\n", length);
+    ok(CryptVerifyCertificateSignatureEx(0, X509_ASN_ENCODING, CRYPT_VERIFY_CERT_SIGN_SUBJECT_CERT, context,
+                                         CRYPT_VERIFY_CERT_SIGN_ISSUER_CERT, context, 0, NULL),
+       "signature verification failed: %#lx\n", GetLastError());
+
+    size = 0;
+    ok(CertGetCertificateContextProperty(context, CERT_KEY_PROV_INFO_PROP_ID, NULL, &size),
+       "missing key provider info: %#lx\n", GetLastError());
+    ok(size >= sizeof(*info), "short key provider info %lu\n", size);
+    if (size >= sizeof(*info) && (info = malloc(size)))
+    {
+        if (CertGetCertificateContextProperty(context, CERT_KEY_PROV_INFO_PROP_ID, info, &size))
+        {
+            ok(!info->dwProvType, "unexpected provider type %lu\n", info->dwProvType);
+            ok(!wcscmp(info->pwszProvName, provider_name), "unexpected provider %s\n", debugstr_w(info->pwszProvName));
+            ok(!wcscmp(info->pwszContainerName, key_name), "unexpected container %s\n", debugstr_w(info->pwszContainerName));
+        }
+        else
+            ok(0, "failed to get key provider info: %#lx\n", GetLastError());
+        free(info);
+    }
+
+done:
+    if (context) CertFreeCertificateContext(context);
+    if (key) NCryptDeleteKey(key, 0);
+    NCryptFreeObject(provider);
+}
+
 START_TEST(cert)
 {
     testAddCert();
@@ -4536,6 +4599,7 @@ START_TEST(cert)
     testCertSigs();
     testSignAndEncodeCert();
     testCreateSelfSignCert();
+    testCreateSelfSignNcryptCert();
     testIntendedKeyUsage();
     testKeyUsage();
     testGetValidUsages();

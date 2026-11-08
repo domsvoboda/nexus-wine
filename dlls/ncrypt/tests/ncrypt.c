@@ -902,6 +902,152 @@ done:
     NCryptFreeObject(provider);
 }
 
+static void test_ecdsa_p256_persisted(void)
+{
+    static const WCHAR name[] = L"wine-test-ecdsa-persisted";
+    NCRYPT_PROV_HANDLE provider = 0;
+    NCRYPT_KEY_HANDLE key = 0, created = 0;
+    BYTE hash[32] = {0}, signature[64], name_buffer[sizeof(name)];
+    DWORD size;
+    SECURITY_STATUS ret;
+
+    ret = NCryptOpenStorageProvider(&provider, L"Microsoft Software Key Storage Provider", 0);
+    ok(ret == ERROR_SUCCESS, "Open provider returned %#lx\n", ret);
+    if (ret) return;
+
+    ret = NCryptCreatePersistedKey(provider, &key, BCRYPT_ECDSA_P256_ALGORITHM, name, 0,
+                                   NCRYPT_OVERWRITE_KEY_FLAG);
+    ok(ret == ERROR_SUCCESS, "Create persisted ECDSA key returned %#lx\n", ret);
+    if (ret) goto done;
+    ok(NCryptIsKeyHandle(key), "created key is not a live key handle\n");
+    size = 0;
+    ret = NCryptGetProperty(key, NCRYPT_NAME_PROPERTY, (BYTE *)name_buffer, sizeof(name_buffer), &size, 0);
+    ok(ret == ERROR_SUCCESS, "Get name returned %#lx\n", ret);
+    ok(size == sizeof(name) && !memcmp(name_buffer, name, sizeof(name)), "unexpected name\n");
+    ret = NCryptFinalizeKey(key, 0);
+    ok(ret == ERROR_SUCCESS, "Finalize persisted ECDSA key returned %#lx\n", ret);
+    if (ret) goto done;
+    ok(!NCryptIsKeyHandle((NCRYPT_KEY_HANDLE)0xdeadbeef), "bogus handle is live\n");
+    NCryptFreeObject(key);
+    key = 0;
+
+    ret = NCryptOpenKey(provider, &key, name, 0, 0);
+    ok(ret == ERROR_SUCCESS, "Open persisted ECDSA key returned %#lx\n", ret);
+    if (ret) goto done;
+    ok(NCryptIsKeyHandle(key), "reopened key is not a live key handle\n");
+    size = 0;
+    ret = NCryptSignHash(key, NULL, hash, sizeof(hash), NULL, 0, &size, 0);
+    ok(ret == ERROR_SUCCESS, "Query signature length returned %#lx\n", ret);
+    ok(size == sizeof(signature), "unexpected signature size %lu\n", size);
+    ret = NCryptSignHash(key, NULL, hash, sizeof(hash), signature, sizeof(signature), &size, 0);
+    ok(ret == ERROR_SUCCESS, "Sign with reopened key returned %#lx\n", ret);
+    if (!ret)
+        ok(NCryptVerifySignature(key, NULL, hash, sizeof(hash), signature, size, 0) == ERROR_SUCCESS,
+           "Verify with reopened key failed\n");
+
+    ret = NCryptCreatePersistedKey(provider, &created, BCRYPT_ECDSA_P256_ALGORITHM, name, 0, 0);
+    ok(ret == NTE_EXISTS, "Create existing key returned %#lx\n", ret);
+    ok(!created, "failed create returned a handle\n");
+    if (created) { NCryptFreeObject(created); created = 0; }
+
+    ret = NCryptCreatePersistedKey(provider, &created, BCRYPT_ECDSA_P256_ALGORITHM, name, 0, 0x40000000);
+    ok(ret != ERROR_SUCCESS, "Invalid create flags returned %#lx\n", ret);
+    ok(!created, "invalid flags returned a handle\n");
+    if (created) { NCryptFreeObject(created); created = 0; }
+
+    ret = NCryptDeleteKey(0, 0);
+    ok(ret == NTE_INVALID_HANDLE, "Delete NULL handle returned %#lx\n", ret);
+    ret = NCryptDeleteKey((NCRYPT_KEY_HANDLE)0xdeadbeef, 0);
+    ok(ret == NTE_INVALID_HANDLE, "Delete bogus handle returned %#lx\n", ret);
+
+    ret = NCryptDeleteKey(key, 0);
+    ok(ret == ERROR_SUCCESS, "Delete persisted key returned %#lx\n", ret);
+    key = 0;
+    ret = NCryptOpenKey(provider, &key, name, 0, 0);
+    ok(ret != ERROR_SUCCESS, "Open after delete returned %#lx\n", ret);
+    if (!ret)
+    {
+        NCryptDeleteKey(key, 0);
+        key = 0;
+    }
+
+done:
+    if (created) NCryptFreeObject(created);
+    if (key) NCryptDeleteKey(key, 0);
+    NCryptFreeObject(provider);
+}
+
+static void test_ecdsa_p256_collision(void)
+{
+    static const WCHAR name[] = L"wine-test-ecdsa-collision";
+    NCRYPT_PROV_HANDLE provider = 0;
+    NCRYPT_KEY_HANDLE first = 0, second = 0, opened = 0;
+    BYTE first_blob[128], opened_blob[128];
+    DWORD first_size, opened_size;
+    SECURITY_STATUS ret;
+
+    ret = NCryptOpenStorageProvider(&provider, L"Microsoft Software Key Storage Provider", 0);
+    ok(ret == ERROR_SUCCESS, "Open provider returned %#lx\n", ret);
+    if (ret) return;
+
+    if (!NCryptOpenKey(provider, &opened, name, 0, 0))
+    {
+        NCryptDeleteKey(opened, 0);
+        opened = 0;
+    }
+
+    ret = NCryptCreatePersistedKey(provider, &first, BCRYPT_ECDSA_P256_ALGORITHM, name, 0,
+                                   NCRYPT_OVERWRITE_KEY_FLAG);
+    ok(ret == ERROR_SUCCESS, "Cleanup create returned %#lx\n", ret);
+    if (ret) goto done;
+    ret = NCryptFinalizeKey(first, 0);
+    ok(ret == ERROR_SUCCESS, "Cleanup finalize returned %#lx\n", ret);
+    if (ret) goto done;
+    ret = NCryptDeleteKey(first, 0);
+    ok(ret == ERROR_SUCCESS, "Cleanup delete returned %#lx\n", ret);
+    first = 0;
+
+    ret = NCryptCreatePersistedKey(provider, &first, BCRYPT_ECDSA_P256_ALGORITHM, name, 0, 0);
+    ok(ret == ERROR_SUCCESS, "First create returned %#lx\n", ret);
+    if (ret) goto done;
+    ret = NCryptCreatePersistedKey(provider, &second, BCRYPT_ECDSA_P256_ALGORITHM, name, 0, 0);
+    ok(ret == ERROR_SUCCESS, "Second unfinalized create returned %#lx\n", ret);
+    if (ret) goto done;
+
+    ret = NCryptFinalizeKey(first, 0);
+    ok(ret == ERROR_SUCCESS, "First finalize returned %#lx\n", ret);
+    if (ret) goto done;
+
+    ret = NCryptFinalizeKey(second, 0);
+    ok(ret == NTE_EXISTS, "Second finalize returned %#lx\n", ret);
+    if (ret != NTE_EXISTS) goto done;
+
+    ret = NCryptDeleteKey(second, 0);
+    ok(ret == ERROR_SUCCESS, "Delete failed second key returned %#lx\n", ret);
+    if (ret) goto done;
+    second = 0;
+
+    first_size = sizeof(first_blob);
+    ret = NCryptExportKey(first, 0, BCRYPT_ECCPUBLIC_BLOB, NULL, first_blob, first_size, &first_size, 0);
+    ok(ret == ERROR_SUCCESS, "First public export returned %#lx\n", ret);
+    if (ret) goto done;
+    ret = NCryptOpenKey(provider, &opened, name, 0, 0);
+    ok(ret == ERROR_SUCCESS, "Open first key returned %#lx\n", ret);
+    if (ret) goto done;
+    opened_size = sizeof(opened_blob);
+    ret = NCryptExportKey(opened, 0, BCRYPT_ECCPUBLIC_BLOB, NULL, opened_blob, opened_size, &opened_size, 0);
+    ok(ret == ERROR_SUCCESS, "Reopened public export returned %#lx\n", ret);
+    if (ret) goto done;
+    ok(first_size == opened_size && !memcmp(first_blob, opened_blob, first_size),
+       "second finalize changed the persisted key\n");
+
+done:
+    if (second) NCryptFreeObject(second);
+    if (first) NCryptDeleteKey(first, 0);
+    if (opened) NCryptDeleteKey(opened, 0);
+    NCryptFreeObject(provider);
+}
+
 START_TEST(ncrypt)
 {
     test_key_import_rsa();
@@ -915,4 +1061,6 @@ START_TEST(ncrypt)
     test_NCryptEncrypt();
     test_NCryptExportKey();
     test_ecdsa_p256();
+    test_ecdsa_p256_persisted();
+    test_ecdsa_p256_collision();
 }
