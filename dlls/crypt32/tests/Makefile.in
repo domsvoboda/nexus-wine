@@ -1,5 +1,5 @@
 TESTDLL   = crypt32.dll
-IMPORTS   = crypt32 advapi32 user32 shlwapi shell32 bcrypt
+IMPORTS   = crypt32 advapi32 user32 shlwapi shell32 bcrypt ncrypt
 
 SOURCES = \
 	base64.c \
