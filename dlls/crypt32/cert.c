@@ -3911,6 +3911,7 @@ static PCCERT_CONTEXT CRYPT_CreateSelfSignNCrypt(NCRYPT_KEY_HANDLE key,
 {
     static BYTE p256_params[] = { 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07 };
     static CHAR ecc_oid[] = szOID_ECC_PUBLIC_KEY, ecdsa_sha256_oid[] = szOID_ECDSA_SHA256;
+    static const WCHAR software_ksp[] = L"Microsoft Software Key Storage Provider";
     BYTE blob_buf[sizeof(BCRYPT_ECCKEY_BLOB) + 64], point[65], serial[16];
     BCRYPT_ECCKEY_BLOB *ecc = (BCRYPT_ECCKEY_BLOB *)blob_buf;
     CRYPT_ALGORITHM_IDENTIFIER sig_alg = { ecdsa_sha256_oid, { 0, NULL } };
@@ -3919,6 +3920,7 @@ static PCCERT_CONTEXT CRYPT_CreateSelfSignNCrypt(NCRYPT_KEY_HANDLE key,
     CRYPT_DER_BLOB blob = { 0, NULL };
     CERT_INFO info = { 0 };
     PCCERT_CONTEXT context = NULL;
+    WCHAR *key_name = NULL;
     SECURITY_STATUS status;
     DWORD size = 0;
 
@@ -3941,7 +3943,13 @@ static PCCERT_CONTEXT CRYPT_CreateSelfSignNCrypt(NCRYPT_KEY_HANDLE key,
     pubKey.PublicKey.cUnusedBits = 0;
 
     if (pSignatureAlgorithm) sig_alg = *pSignatureAlgorithm;
-    BCryptGenRandom(NULL, serial, sizeof(serial), BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    status = BCryptGenRandom(NULL, serial, sizeof(serial), BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    if (status)
+    {
+        WARN("BCryptGenRandom failed %#lx\n", status);
+        SetLastError(RtlNtStatusToDosError(status));
+        return NULL;
+    }
     serial[sizeof(serial) - 1] &= 0x7f; /* keep the serial positive (little-endian, top byte last) */
 
     CRYPT_MakeCertInfo(&info, &serialBlob, pSubjectIssuerBlob, &sig_alg, pStartTime,
@@ -3955,26 +3963,56 @@ static PCCERT_CONTEXT CRYPT_CreateSelfSignNCrypt(NCRYPT_KEY_HANDLE key,
     else
         context = CertCreateCertificateContext(X509_ASN_ENCODING, blob.pbData, blob.cbData);
     LocalFree(blob.pbData);
+    if (!context) return NULL;
 
-    if (context && !(dwFlags & CERT_CREATE_SELFSIGN_NO_KEY_INFO))
+    if (!(dwFlags & CERT_CREATE_SELFSIGN_NO_KEY_INFO))
     {
         CRYPT_KEY_PROV_INFO prov = { 0 };
-        WCHAR name[MAX_PATH];
+        DWORD name_size = 0;
 
         if (pKeyProvInfo)
-            CertSetCertificateContextProperty(context, CERT_KEY_PROV_INFO_PROP_ID, 0, pKeyProvInfo);
-        else if (!NCryptGetProperty(key, NCRYPT_NAME_PROPERTY, (BYTE *)name, sizeof(name), &size, 0))
         {
-            /* dwProvType 0 marks a CNG key; reopened by name through the KSP */
-            prov.pwszContainerName = name;
-            prov.pwszProvName = (WCHAR *)L"Microsoft Software Key Storage Provider";
-            CertSetCertificateContextProperty(context, CERT_KEY_PROV_INFO_PROP_ID, 0, &prov);
+            if (!CertSetCertificateContextProperty(context, CERT_KEY_PROV_INFO_PROP_ID, 0, pKeyProvInfo))
+                goto fail;
         }
         else
-            WARN("ephemeral NCrypt key, no key provider info set\n");
+        {
+            status = NCryptGetProperty(key, NCRYPT_NAME_PROPERTY, NULL, 0, &name_size, 0);
+            if (!status && name_size)
+            {
+                if (!(key_name = malloc(name_size)))
+                {
+                    SetLastError(ERROR_OUTOFMEMORY);
+                    goto fail;
+                }
+                if ((status = NCryptGetProperty(key, NCRYPT_NAME_PROPERTY, (BYTE *)key_name, name_size, &name_size, 0)))
+                {
+                    SetLastError(status);
+                    goto fail;
+                }
+                /* dwProvType 0 marks a CNG key; reopened by name through the KSP */
+                prov.pwszContainerName = key_name;
+                prov.pwszProvName = (WCHAR *)software_ksp;
+                if (!CertSetCertificateContextProperty(context, CERT_KEY_PROV_INFO_PROP_ID, 0, &prov))
+                    goto fail;
+            }
+            else if (status == NTE_INVALID_PARAMETER)
+                WARN("ephemeral NCrypt key, no key provider info set\n");
+            else
+            {
+                SetLastError(status ? status : ERROR_INVALID_DATA);
+                goto fail;
+            }
+        }
     }
+    free(key_name);
     TRACE("returning %p\n", context);
     return context;
+
+fail:
+    free(key_name);
+    CertFreeCertificateContext(context);
+    return NULL;
 }
 
 PCCERT_CONTEXT WINAPI CertCreateSelfSignCertificate(HCRYPTPROV_OR_NCRYPT_KEY_HANDLE hProv,

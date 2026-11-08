@@ -575,6 +575,8 @@ static BYTE *get_key_blob(const CERT_CONTEXT *ctx, DWORD *size)
     return ret;
 }
 
+#define MAX_NCRYPT_KEY_BLOB 4096
+
 /* Private key of a CNG certificate (NCrypt key handle, or provider info with
  * dwProvType 0) as BCRYPT_ECCPRIVATE_BLOB; used for PlayFab Party DTLS self-signed certs. */
 static BYTE *get_ncrypt_key_blob(const CERT_CONTEXT *ctx, DWORD *size)
@@ -586,6 +588,7 @@ static BYTE *get_ncrypt_key_blob(const CERT_CONTEXT *ctx, DWORD *size)
     BOOL free_key = FALSE;
     BYTE *ret = NULL;
 
+    *size = 0;
     if (CertGetCertificateContextProperty(ctx, CERT_NCRYPT_KEY_HANDLE_PROP_ID, &handle, &len))
         key = handle;
     else if (CertGetCertificateContextProperty(ctx, CERT_KEY_PROV_INFO_PROP_ID, NULL, &info_size) &&
@@ -602,12 +605,28 @@ static BYTE *get_ncrypt_key_blob(const CERT_CONTEXT *ctx, DWORD *size)
     free(info);
 
     if (key && !NCryptExportKey(key, 0, BCRYPT_ECCPRIVATE_BLOB, NULL, NULL, 0, size, 0) &&
-        (ret = malloc(*size)) &&
-        NCryptExportKey(key, 0, BCRYPT_ECCPRIVATE_BLOB, NULL, ret, *size, size, 0))
+        *size >= sizeof(BCRYPT_ECCKEY_BLOB) && *size <= MAX_NCRYPT_KEY_BLOB)
     {
-        free(ret);
-        ret = NULL;
+        DWORD capacity = *size;
+
+        if ((ret = malloc(capacity)))
+        {
+            DWORD written = capacity;
+
+            if (NCryptExportKey(key, 0, BCRYPT_ECCPRIVATE_BLOB, NULL, ret, capacity, &written, 0) ||
+                written < sizeof(BCRYPT_ECCKEY_BLOB) || written > capacity)
+            {
+                SecureZeroMemory(ret, capacity);
+                free(ret);
+                ret = NULL;
+                *size = 0;
+            }
+            else *size = written;
+        }
+        else *size = 0;
     }
+    else if (key) *size = 0;
+
     if (free_key) NCryptFreeObject(key);
     if (prov) NCryptFreeObject(prov);
     TRACE("cert %p, CNG key blob %p, size %lu\n", ctx, ret, ret ? *size : 0);
@@ -679,7 +698,11 @@ static SECURITY_STATUS acquire_credentials_handle(ULONG fCredentialUse,
     params.key_size = key_size;
     params.key_blob = key_blob;
     status = GNUTLS_CALL( allocate_certificate_credentials, &params );
-    free(key_blob);
+    if (key_blob)
+    {
+        SecureZeroMemory(key_blob, key_size);
+        free(key_blob);
+    }
     if (status) goto fail;
 
     handle = schan_alloc_handle(creds, SCHAN_HANDLE_CRED);
