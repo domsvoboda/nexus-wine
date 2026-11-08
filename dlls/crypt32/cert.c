@@ -29,6 +29,7 @@
 #include "wincrypt.h"
 #include "snmp.h"
 #include "bcrypt.h"
+#include "ncrypt.h"
 #include "winnls.h"
 #include "rpc.h"
 #include "wine/debug.h"
@@ -1432,6 +1433,24 @@ DWORD WINAPI CertGetPublicKeyLength(DWORD dwCertEncodingType,
         FIXME("unimplemented for DH public keys\n");
         SetLastError(CRYPT_E_ASN1_BADTAG);
     }
+    else if (pPublicKey->Algorithm.pszObjId &&
+     !strcmp(pPublicKey->Algorithm.pszObjId, szOID_ECC_PUBLIC_KEY))
+    {
+        /* ECC key length comes from the curve OID */
+        char **curve;
+        DWORD size;
+
+        if (CryptDecodeObjectEx(X509_ASN_ENCODING, X509_OBJECT_IDENTIFIER,
+         pPublicKey->Algorithm.Parameters.pbData, pPublicKey->Algorithm.Parameters.cbData,
+         CRYPT_DECODE_ALLOC_FLAG, NULL, &curve, &size))
+        {
+            if (!strcmp(*curve, szOID_ECC_CURVE_P256)) len = 256;
+            else if (!strcmp(*curve, szOID_ECC_CURVE_P384)) len = 384;
+            else if (!strcmp(*curve, szOID_ECC_CURVE_P521)) len = 521;
+            else FIXME("unsupported curve %s\n", debugstr_a(*curve));
+            LocalFree(curve);
+        }
+    }
     else
     {
         PCCRYPT_OID_INFO info;
@@ -2468,6 +2487,109 @@ BOOL WINAPI CryptHashToBeSigned(HCRYPTPROV_LEGACY hCryptProv,
     return ret;
 }
 
+/* NCrypt ECDSA key support (PlayFab Party DTLS self-signed certs) */
+static BOOL CRYPT_IsNCryptKey(HCRYPTPROV_OR_NCRYPT_KEY_HANDLE handle)
+{
+    return handle && NCryptIsKeyHandle(handle);
+}
+
+/* DER INTEGER from an unsigned big-endian value; returns encoded length */
+static DWORD CRYPT_EncodeUnsignedDER(const BYTE *val, DWORD len, BYTE *out)
+{
+    DWORD pad;
+
+    while (len > 1 && !*val) { val++; len--; }
+    pad = (*val & 0x80) ? 1 : 0;
+    out[0] = ASN_INTEGER;
+    out[1] = len + pad;
+    out[2] = 0;
+    memcpy(out + 2 + pad, val, len);
+    return 2 + pad + len;
+}
+
+/* Hashes and signs with an NCrypt ECDSA key, returning a DER ECC signature
+ * (SEQUENCE { INTEGER r, INTEGER s }), not byte-reversed. */
+static BOOL CRYPT_NCryptSignCertificate(NCRYPT_KEY_HANDLE key, PCCRYPT_OID_INFO info,
+ const BYTE *data, DWORD data_len, BYTE *sig, DWORD *sig_len)
+{
+    BCRYPT_ALG_HANDLE hash_alg;
+    BYTE hash[64], raw[132], der[3 + 2 * 69];
+    DWORD hash_len, raw_len = 0, half, pos;
+    SECURITY_STATUS status;
+
+    if (!strcmp(info->pszOID, szOID_ECDSA_SHA256))
+    {
+        hash_alg = BCRYPT_SHA256_ALG_HANDLE;
+        hash_len = 32;
+    }
+    else if (!strcmp(info->pszOID, szOID_ECDSA_SHA384))
+    {
+        hash_alg = BCRYPT_SHA384_ALG_HANDLE;
+        hash_len = 48;
+    }
+    else
+    {
+        FIXME("unsupported NCrypt signature algorithm %s\n", debugstr_a(info->pszOID));
+        SetLastError(NTE_BAD_ALGID);
+        return FALSE;
+    }
+
+    if (BCryptHash(hash_alg, NULL, 0, (UCHAR *)data, data_len, hash, hash_len))
+    {
+        SetLastError(NTE_FAIL);
+        return FALSE;
+    }
+    if (!sig)
+    {
+        /* signatures vary in DER length; report the maximum so the real call fits */
+        if ((status = NCryptSignHash(key, NULL, hash, hash_len, NULL, 0, &raw_len, 0)) ||
+            !raw_len || raw_len % 2 || raw_len > sizeof(raw))
+        {
+            SetLastError(status ? status : NTE_BAD_SIGNATURE);
+            return FALSE;
+        }
+        pos = 2 * (3 + raw_len / 2);
+        *sig_len = pos + (pos > 0x7f ? 3 : 2);
+        return TRUE;
+    }
+    if ((status = NCryptSignHash(key, NULL, hash, hash_len, raw, sizeof(raw), &raw_len, 0)))
+    {
+        WARN("NCryptSignHash failed %#lx\n", status);
+        SetLastError(status);
+        return FALSE;
+    }
+    if (!raw_len || raw_len % 2 || raw_len > sizeof(raw) || raw_len / 2 > 66)
+    {
+        SetLastError(NTE_BAD_SIGNATURE);
+        return FALSE;
+    }
+
+    half = raw_len / 2;
+    pos = 2;
+    pos += CRYPT_EncodeUnsignedDER(raw, half, der + pos);
+    pos += CRYPT_EncodeUnsignedDER(raw + half, half, der + pos);
+    if (pos - 2 > 0x7f)
+    {
+        /* long-form length for P-521 sized signatures */
+        memmove(der + 3, der + 2, pos - 2);
+        der[1] = 0x81;
+        der[2] = pos - 2;
+        pos++;
+    }
+    else der[1] = pos - 2;
+    der[0] = ASN_SEQUENCEOF;
+
+    if (*sig_len < pos)
+    {
+        *sig_len = pos;
+        SetLastError(ERROR_MORE_DATA);
+        return FALSE;
+    }
+    memcpy(sig, der, pos);
+    *sig_len = pos;
+    return TRUE;
+}
+
 BOOL WINAPI CryptSignCertificate(HCRYPTPROV_OR_NCRYPT_KEY_HANDLE hCryptProv,
  DWORD dwKeySpec, DWORD dwCertEncodingType, const BYTE *pbEncodedToBeSigned,
  DWORD cbEncodedToBeSigned, PCRYPT_ALGORITHM_IDENTIFIER pSignatureAlgorithm,
@@ -2488,6 +2610,9 @@ BOOL WINAPI CryptSignCertificate(HCRYPTPROV_OR_NCRYPT_KEY_HANDLE hCryptProv,
         SetLastError(NTE_BAD_ALGID);
         return FALSE;
     }
+    if (info->dwGroupId == CRYPT_SIGN_ALG_OID_GROUP_ID && CRYPT_IsNCryptKey(hCryptProv))
+        return CRYPT_NCryptSignCertificate(hCryptProv, info, pbEncodedToBeSigned,
+         cbEncodedToBeSigned, pbSignature, pcbSignature);
     if (info->dwGroupId == CRYPT_HASH_ALG_OID_GROUP_ID)
     {
         if (!hCryptProv)
@@ -2573,7 +2698,11 @@ BOOL WINAPI CryptSignAndEncodeCertificate(HCRYPTPROV_OR_NCRYPT_KEY_HANDLE hCrypt
                             info.Signature.cbData = hashSize;
                             info.Signature.pbData = hash;
                             info.Signature.cUnusedBits = 0;
-                            ret = CryptEncodeObject(dwCertEncodingType,
+                            if (CRYPT_IsNCryptKey(hCryptProv))
+                                ret = CryptEncodeObjectEx(dwCertEncodingType, X509_CERT, &info,
+                                 CRYPT_ENCODE_NO_SIGNATURE_BYTE_REVERSAL_FLAG, NULL, pbEncoded, pcbEncoded);
+                            else
+                                ret = CryptEncodeObject(dwCertEncodingType,
                              X509_CERT, &info, pbEncoded, pcbEncoded);
                         }
                         CryptMemFree(hash);
@@ -3625,7 +3754,7 @@ static void CertContext_SetKeyProvInfo(PCCERT_CONTEXT context,
  * in blob, using the crypto provider hProv and the signature algorithm sigAlgo.
  */
 static PCCERT_CONTEXT CRYPT_CreateSignedCert(const CRYPT_DER_BLOB *blob,
- HCRYPTPROV hProv, DWORD dwKeySpec, PCRYPT_ALGORITHM_IDENTIFIER sigAlgo)
+ HCRYPTPROV_OR_NCRYPT_KEY_HANDLE hProv, DWORD dwKeySpec, PCRYPT_ALGORITHM_IDENTIFIER sigAlgo)
 {
     PCCERT_CONTEXT context = NULL;
     BOOL ret;
@@ -3652,7 +3781,8 @@ static PCCERT_CONTEXT CRYPT_CreateSignedCert(const CRYPT_DER_BLOB *blob,
             signedInfo.Signature.pbData = sig;
             signedInfo.Signature.cUnusedBits = 0;
             ret = CryptEncodeObjectEx(X509_ASN_ENCODING, X509_CERT,
-             &signedInfo, CRYPT_ENCODE_ALLOC_FLAG, NULL,
+             &signedInfo, CRYPT_ENCODE_ALLOC_FLAG |
+             (CRYPT_IsNCryptKey(hProv) ? CRYPT_ENCODE_NO_SIGNATURE_BYTE_REVERSAL_FLAG : 0), NULL,
              &encodedSignedCert, &encodedSignedCertSize);
             if (ret)
             {
@@ -3772,6 +3902,81 @@ static HCRYPTPROV CRYPT_CreateKeyProv(void)
     return hProv;
 }
 
+/* CertCreateSelfSignCertificate for an NCrypt ECDSA P-256 key.
+ * shortcut: only ECDSA P-256 NCrypt keys, extend for RSA/P-384 NCrypt keys if a game needs them. */
+static PCCERT_CONTEXT CRYPT_CreateSelfSignNCrypt(NCRYPT_KEY_HANDLE key,
+ PCERT_NAME_BLOB pSubjectIssuerBlob, DWORD dwFlags, PCRYPT_KEY_PROV_INFO pKeyProvInfo,
+ PCRYPT_ALGORITHM_IDENTIFIER pSignatureAlgorithm, PSYSTEMTIME pStartTime,
+ PSYSTEMTIME pEndTime, PCERT_EXTENSIONS pExtensions)
+{
+    static BYTE p256_params[] = { 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07 };
+    static CHAR ecc_oid[] = szOID_ECC_PUBLIC_KEY, ecdsa_sha256_oid[] = szOID_ECDSA_SHA256;
+    BYTE blob_buf[sizeof(BCRYPT_ECCKEY_BLOB) + 64], point[65], serial[16];
+    BCRYPT_ECCKEY_BLOB *ecc = (BCRYPT_ECCKEY_BLOB *)blob_buf;
+    CRYPT_ALGORITHM_IDENTIFIER sig_alg = { ecdsa_sha256_oid, { 0, NULL } };
+    CRYPT_DATA_BLOB serialBlob = { sizeof(serial), serial };
+    CERT_PUBLIC_KEY_INFO pubKey;
+    CRYPT_DER_BLOB blob = { 0, NULL };
+    CERT_INFO info = { 0 };
+    PCCERT_CONTEXT context = NULL;
+    SECURITY_STATUS status;
+    DWORD size = 0;
+
+    status = NCryptExportKey(key, 0, BCRYPT_ECCPUBLIC_BLOB, NULL, blob_buf, sizeof(blob_buf), &size, 0);
+    if (status || size != sizeof(blob_buf) || ecc->dwMagic != BCRYPT_ECDSA_PUBLIC_P256_MAGIC || ecc->cbKey != 32)
+    {
+        FIXME("unsupported NCrypt key (status %#lx, size %lu, magic %#lx)\n", status, size,
+         size >= sizeof(*ecc) ? ecc->dwMagic : 0);
+        SetLastError(status ? status : NTE_NOT_SUPPORTED);
+        return NULL;
+    }
+    point[0] = 0x04; /* uncompressed point */
+    memcpy(point + 1, ecc + 1, 64);
+
+    pubKey.Algorithm.pszObjId = ecc_oid;
+    pubKey.Algorithm.Parameters.cbData = sizeof(p256_params);
+    pubKey.Algorithm.Parameters.pbData = p256_params;
+    pubKey.PublicKey.cbData = sizeof(point);
+    pubKey.PublicKey.pbData = point;
+    pubKey.PublicKey.cUnusedBits = 0;
+
+    if (pSignatureAlgorithm) sig_alg = *pSignatureAlgorithm;
+    BCryptGenRandom(NULL, serial, sizeof(serial), BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    serial[sizeof(serial) - 1] &= 0x7f; /* keep the serial positive (little-endian, top byte last) */
+
+    CRYPT_MakeCertInfo(&info, &serialBlob, pSubjectIssuerBlob, &sig_alg, pStartTime,
+     pEndTime, &pubKey, pExtensions);
+    if (!CryptEncodeObjectEx(X509_ASN_ENCODING, X509_CERT_TO_BE_SIGNED, &info,
+     CRYPT_ENCODE_ALLOC_FLAG, NULL, &blob.pbData, &blob.cbData))
+        return NULL;
+
+    if (!(dwFlags & CERT_CREATE_SELFSIGN_NO_SIGN))
+        context = CRYPT_CreateSignedCert(&blob, key, 0, &info.SignatureAlgorithm);
+    else
+        context = CertCreateCertificateContext(X509_ASN_ENCODING, blob.pbData, blob.cbData);
+    LocalFree(blob.pbData);
+
+    if (context && !(dwFlags & CERT_CREATE_SELFSIGN_NO_KEY_INFO))
+    {
+        CRYPT_KEY_PROV_INFO prov = { 0 };
+        WCHAR name[MAX_PATH];
+
+        if (pKeyProvInfo)
+            CertSetCertificateContextProperty(context, CERT_KEY_PROV_INFO_PROP_ID, 0, pKeyProvInfo);
+        else if (!NCryptGetProperty(key, NCRYPT_NAME_PROPERTY, (BYTE *)name, sizeof(name), &size, 0))
+        {
+            /* dwProvType 0 marks a CNG key; reopened by name through the KSP */
+            prov.pwszContainerName = name;
+            prov.pwszProvName = (WCHAR *)L"Microsoft Software Key Storage Provider";
+            CertSetCertificateContextProperty(context, CERT_KEY_PROV_INFO_PROP_ID, 0, &prov);
+        }
+        else
+            WARN("ephemeral NCrypt key, no key provider info set\n");
+    }
+    TRACE("returning %p\n", context);
+    return context;
+}
+
 PCCERT_CONTEXT WINAPI CertCreateSelfSignCertificate(HCRYPTPROV_OR_NCRYPT_KEY_HANDLE hProv,
  PCERT_NAME_BLOB pSubjectIssuerBlob, DWORD dwFlags,
  PCRYPT_KEY_PROV_INFO pKeyProvInfo,
@@ -3792,6 +3997,10 @@ PCCERT_CONTEXT WINAPI CertCreateSelfSignCertificate(HCRYPTPROV_OR_NCRYPT_KEY_HAN
         SetLastError(ERROR_INVALID_PARAMETER);
         return NULL;
     }
+
+    if (CRYPT_IsNCryptKey(hProv))
+        return CRYPT_CreateSelfSignNCrypt(hProv, pSubjectIssuerBlob, dwFlags, pKeyProvInfo,
+         pSignatureAlgorithm, pStartTime, pEndTime, pExtensions);
 
     dwKeySpec = pKeyProvInfo ? pKeyProvInfo->dwKeySpec : AT_SIGNATURE;
     if (!hProv)

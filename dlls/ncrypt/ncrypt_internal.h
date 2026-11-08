@@ -33,6 +33,7 @@ struct key
 {
     enum algid algid;
     BCRYPT_KEY_HANDLE bcrypt_key;
+    WCHAR *name; /* Persisted key name */
 };
 
 struct storage_provider
