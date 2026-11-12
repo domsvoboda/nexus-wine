@@ -26,6 +26,18 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(model);
 
+static WCHAR *package_wcsdup( const WCHAR *text )
+{
+    size_t length;
+    WCHAR *copy;
+
+    if (!text) return NULL;
+    length = wcslen( text ) + 1;
+    if (!(copy = malloc( length * sizeof(WCHAR) ))) return NULL;
+    memcpy( copy, text, length * sizeof(WCHAR) );
+    return copy;
+}
+
 struct package_statics
 {
     IActivationFactory IActivationFactory_iface;
@@ -124,6 +136,7 @@ struct storage_folder
     IStorageFolder IStorageFolder_iface;
     IStorageItem IStorageItem_iface;
     LONG ref;
+    WCHAR *path;
 };
 
 static inline struct storage_folder *impl_from_IStorageFolder( IStorageFolder *iface )
@@ -173,7 +186,11 @@ static ULONG WINAPI storage_folder_Release( IStorageFolder *iface )
 
     TRACE( "iface %p decreasing refcount to %lu.\n", iface, ref );
 
-    if (!ref) free( impl );
+    if (!ref)
+    {
+        free( impl->path );
+        free( impl );
+    }
     return ref;
 }
 
@@ -324,11 +341,15 @@ static HRESULT WINAPI storage_item_get_Name( IStorageItem *iface, HSTRING *value
 
 static HRESULT WINAPI storage_item_get_Path( IStorageItem *iface, HSTRING *value )
 {
+    struct storage_folder *impl = impl_from_IStorageItem( iface );
     WCHAR buffer[MAX_PATH];
     HRESULT hr;
 
     TRACE( "iface %p, value %p\n", iface, value );
 
+    if (!value) return E_INVALIDARG;
+    *value = NULL;
+    if (impl->path) return WindowsCreateString( impl->path, wcslen(impl->path), value );
     if (!GetModuleFileNameW( NULL, buffer, MAX_PATH )) return HRESULT_FROM_WIN32( GetLastError() );
     if (FAILED( hr = PathCchRemoveFileSpec( buffer, ARRAY_SIZE(buffer) ) )) return hr;
 
@@ -500,10 +521,83 @@ static const struct IPackageIdVtbl package_id_vtbl =
     package_id_get_FamilyName,
 };
 
-static HRESULT package_id_create( IPackageId **out )
+static HRESULT package_id_create_from( const PACKAGE_ID *source, const WCHAR *full_name,
+                                       const WCHAR *family_name, IPackageId **out )
 {
     struct package_id *impl;
+    WCHAR *cursor;
+    size_t name_length, publisher_length, resource_length, publisher_id_length, total;
+
+    *out = NULL;
+    if (!source->name || !source->publisher || !source->resourceId || !source->publisherId)
+        return E_INVALIDARG;
+    name_length = wcslen( source->name ) + 1;
+    publisher_length = wcslen( source->publisher ) + 1;
+    resource_length = wcslen( source->resourceId ) + 1;
+    publisher_id_length = wcslen( source->publisherId ) + 1;
+    total = name_length + publisher_length + resource_length + publisher_id_length;
+
+    if (!(impl = calloc( 1, sizeof(*impl) ))) return E_OUTOFMEMORY;
+    impl->IPackageId_iface.lpVtbl = &package_id_vtbl;
+    impl->ref = 1;
+    if (!(impl->identity = calloc( 1, sizeof(PACKAGE_ID) + total * sizeof(WCHAR) )) ||
+        !(impl->full_name = package_wcsdup( full_name )) ||
+        !(impl->family_name = package_wcsdup( family_name )))
+    {
+        IPackageId_Release( &impl->IPackageId_iface );
+        return E_OUTOFMEMORY;
+    }
+
+    cursor = (WCHAR *)(impl->identity + 1);
+    impl->identity->reserved = source->reserved;
+    impl->identity->processorArchitecture = source->processorArchitecture;
+    impl->identity->version = source->version;
+    impl->identity->name = cursor;
+    memcpy( cursor, source->name, name_length * sizeof(WCHAR) );
+    cursor += name_length;
+    impl->identity->publisher = cursor;
+    memcpy( cursor, source->publisher, publisher_length * sizeof(WCHAR) );
+    cursor += publisher_length;
+    impl->identity->resourceId = cursor;
+    memcpy( cursor, source->resourceId, resource_length * sizeof(WCHAR) );
+    cursor += resource_length;
+    impl->identity->publisherId = cursor;
+    memcpy( cursor, source->publisherId, publisher_id_length * sizeof(WCHAR) );
+
+    *out = &impl->IPackageId_iface;
+    return S_OK;
+}
+
+static HRESULT package_id_create_installed( const WCHAR *full_name, const WCHAR *publisher, IPackageId **out )
+{
+    WCHAR family_name[66];
+    PACKAGE_ID *parsed;
+    BYTE *buffer = NULL;
+    UINT32 size = 0;
+    LONG error;
+    HRESULT hr;
+
+    *out = NULL;
+    if ((error = PackageIdFromFullName( full_name, 0, &size, NULL )) != ERROR_INSUFFICIENT_BUFFER)
+        return HRESULT_FROM_WIN32(error ? error : ERROR_INVALID_DATA);
+    if (!(buffer = malloc( size ))) return E_OUTOFMEMORY;
+    if ((error = PackageIdFromFullName( full_name, 0, &size, buffer )))
+    { free( buffer ); return HRESULT_FROM_WIN32(error); }
+    parsed = (PACKAGE_ID *)buffer;
+    parsed->publisher = (WCHAR *)publisher;
+    if (swprintf( family_name, ARRAY_SIZE(family_name), L"%s_%s", parsed->name, parsed->publisherId ) < 0)
+    { free( buffer ); return HRESULT_FROM_WIN32(ERROR_INVALID_DATA); }
+    hr = package_id_create_from( parsed, full_name, family_name, out );
+    free( buffer );
+    return hr;
+}
+
+static HRESULT package_id_create( IPackageId **out )
+{
     UINT32 id_size = 0, full_size = 0, family_size = 0;
+    WCHAR *full_name = NULL, *family_name = NULL;
+    BYTE *identity = NULL;
+    HRESULT hr;
     LONG error;
 
     *out = NULL;
@@ -513,26 +607,21 @@ static HRESULT package_id_create( IPackageId **out )
         return error ? HRESULT_FROM_WIN32(error) : E_UNEXPECTED;
     if ((error = GetCurrentPackageFamilyName( &family_size, NULL )) != ERROR_INSUFFICIENT_BUFFER)
         return error ? HRESULT_FROM_WIN32(error) : E_UNEXPECTED;
-    if (!(impl = calloc( 1, sizeof(*impl) ))) return E_OUTOFMEMORY;
-    impl->IPackageId_iface.lpVtbl = &package_id_vtbl;
-    impl->ref = 1;
-    if (!(impl->identity = malloc(id_size)) || !(impl->full_name = calloc(full_size, sizeof(WCHAR))) ||
-        !(impl->family_name = calloc(family_size, sizeof(WCHAR))))
-    {
-        IPackageId_Release( &impl->IPackageId_iface );
-        return E_OUTOFMEMORY;
-    }
+    if (!(identity = malloc( id_size )) || !(full_name = malloc( full_size * sizeof(WCHAR) )) ||
+        !(family_name = malloc( family_size * sizeof(WCHAR) )))
+    { hr = E_OUTOFMEMORY; goto done; }
     /* Use the current process's real package snapshot, not its working
      * directory, environment hints or guessed Store/account information. */
-    if ((error = GetCurrentPackageId( &id_size, (BYTE *)impl->identity )) ||
-        (error = GetCurrentPackageFullName( &full_size, impl->full_name )) ||
-        (error = GetCurrentPackageFamilyName( &family_size, impl->family_name )))
-    {
-        IPackageId_Release( &impl->IPackageId_iface );
-        return HRESULT_FROM_WIN32(error);
-    }
-    *out = &impl->IPackageId_iface;
-    return S_OK;
+    if ((error = GetCurrentPackageId( &id_size, identity )) ||
+        (error = GetCurrentPackageFullName( &full_size, full_name )) ||
+        (error = GetCurrentPackageFamilyName( &family_size, family_name )))
+    { hr = HRESULT_FROM_WIN32(error); goto done; }
+    hr = package_id_create_from( (PACKAGE_ID *)identity, full_name, family_name, out );
+done:
+    free( identity );
+    free( full_name );
+    free( family_name );
+    return hr;
 }
 
 #include "package_metadata.h"
@@ -545,6 +634,7 @@ struct package
     IPackage4 IPackage4_iface;
     LONG ref;
     IPackageId *id;
+    WCHAR *root;
     struct package_metadata metadata;
     HRESULT deployment_status;
 };
@@ -610,6 +700,7 @@ static ULONG WINAPI package_Release( IPackage *iface )
     {
         IPackageId_Release( impl->id );
         package_metadata_clear(&impl->metadata);
+        free( impl->root );
         free( impl );
     }
     return ref;
@@ -653,16 +744,23 @@ static HRESULT WINAPI package_get_Id( IPackage *iface, IPackageId **value )
 
 static HRESULT WINAPI package_get_InstalledLocation( IPackage *iface, IStorageFolder **value )
 {
+    struct package *package = impl_from_IPackage( iface );
     struct storage_folder *impl;
 
     TRACE( "iface %p, value %p\n", iface, value );
 
     if (!value) return E_INVALIDARG;
+    *value = NULL;
     if (!(impl = calloc( 1, sizeof(*impl) ))) return E_OUTOFMEMORY;
 
     impl->IStorageFolder_iface.lpVtbl = &storage_folder_vtbl;
     impl->IStorageItem_iface.lpVtbl = &storage_item_vtbl;
     impl->ref = 1;
+    if (package->root && !(impl->path = package_wcsdup( package->root )))
+    {
+        free( impl );
+        return E_OUTOFMEMORY;
+    }
 
     *value = &impl->IStorageFolder_iface;
     TRACE( "created IStorageFolder %p.\n", *value );
@@ -679,11 +777,7 @@ static HRESULT WINAPI package_get_IsFramework( IPackage *iface, boolean *value )
     return S_OK;
 }
 
-static HRESULT WINAPI package_get_Dependencies( IPackage *iface, IVectorView_Package **value )
-{
-    FIXME( "iface %p, value %p stub!\n", iface, value );
-    return E_NOTIMPL;
-}
+static HRESULT WINAPI package_get_Dependencies( IPackage *iface, IVectorView_Package **value );
 
 static const struct IPackageVtbl package_vtbl =
 {
@@ -812,27 +906,92 @@ static const struct IPackage4Vtbl package4_vtbl =
     package4_get_SignatureKind, package4_get_IsOptional, package4_VerifyContentIntegrityAsync,
 };
 
-static HRESULT package_current_deployment( const struct package_id *id )
+static HRESULT package_current_deployment( const WCHAR *root, const struct package_id *id );
+
+/* Takes ownership of id, including on failure. Metadata and deployment
+ * failures are recorded rather than hidden; the dependency path rejects a
+ * child whose own metadata or registration is not authenticated. */
+static HRESULT package_create( IPackageId *id, const WCHAR *root, BOOL parse_dependencies, IPackage **out )
 {
-    UINT32 length = 0;
-    WCHAR *root;
+    struct package *impl;
+
+    *out = NULL;
+    if (!(impl = calloc( 1, sizeof(*impl) )))
+    {
+        IPackageId_Release( id );
+        return E_OUTOFMEMORY;
+    }
+    impl->IPackage_iface.lpVtbl = &package_vtbl;
+    impl->IPackage2_iface.lpVtbl = &package2_vtbl;
+    impl->IPackage4_iface.lpVtbl = &package4_vtbl;
+    impl->ref = 1;
+    impl->id = id;
+    if (root && !(impl->root = package_wcsdup( root )))
+    {
+        IPackage_Release( &impl->IPackage_iface );
+        return E_OUTOFMEMORY;
+    }
+    impl->metadata.status = package_metadata_read_at( root, impl_from_IPackageId(id), parse_dependencies,
+                                                      &impl->metadata, NULL );
+    impl->deployment_status = root ? package_current_deployment( root, impl_from_IPackageId(id) ) : E_INVALIDARG;
+    *out = &impl->IPackage_iface;
+    return S_OK;
+}
+
+/* Build a package from the exact manifest bytes that the catalog already
+ * authenticated against its container. This avoids authenticating one read and
+ * then re-reading a mutable file for the child's metadata. */
+static HRESULT package_create_verified( IPackageId *id, const WCHAR *root, const BYTE *manifest,
+                                        DWORD manifest_length, IPackage **out )
+{
+    struct package *impl;
     HRESULT hr;
-    LONG error = GetCurrentPackagePath(&length, NULL);
-    if (error != ERROR_INSUFFICIENT_BUFFER) return error ? HRESULT_FROM_WIN32(error) : E_UNEXPECTED;
-    if (!length || length > 32768) return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    if (!(root = malloc(length * sizeof(WCHAR)))) return E_OUTOFMEMORY;
-    error = GetCurrentPackagePath(&length, root);
-    hr = error ? HRESULT_FROM_WIN32(error) : package_deployment_current(root, id->full_name);
-    free(root);
-    return hr;
+
+    *out = NULL;
+    if (!(impl = calloc( 1, sizeof(*impl) )))
+    {
+        IPackageId_Release( id );
+        return E_OUTOFMEMORY;
+    }
+    impl->IPackage_iface.lpVtbl = &package_vtbl;
+    impl->IPackage2_iface.lpVtbl = &package2_vtbl;
+    impl->IPackage4_iface.lpVtbl = &package4_vtbl;
+    impl->ref = 1;
+    impl->id = id;
+    if (root && !(impl->root = package_wcsdup( root )))
+    {
+        IPackage_Release( &impl->IPackage_iface );
+        return E_OUTOFMEMORY;
+    }
+    hr = package_metadata_parse( manifest, manifest_length, impl_from_IPackageId(id), TRUE,
+                                 &impl->metadata, NULL );
+    /* The catalog verified this exact manifest against the registered
+     * container, Ready/mode/provider and root before handing it over. */
+    impl->deployment_status = S_OK;
+    if (FAILED(hr))
+    {
+        IPackage_Release( &impl->IPackage_iface );
+        return hr;
+    }
+    *out = &impl->IPackage_iface;
+    return S_OK;
+}
+
+#include "package_dependencies.h"
+
+static HRESULT package_current_deployment( const WCHAR *root, const struct package_id *id )
+{
+    return package_deployment_current( root, id->full_name );
 }
 
 DEFINE_IINSPECTABLE( package_statics, IPackageStatics, struct package_statics, IActivationFactory_iface )
 
 static HRESULT WINAPI package_statics_get_Current( IPackageStatics *iface, IPackage **value )
 {
-    struct package *impl;
     IPackageId *id;
+    WCHAR *root = NULL;
+    UINT32 length = 0;
+    LONG error;
     HRESULT hr;
 
     TRACE( "iface %p, value %p\n", iface, value );
@@ -840,24 +999,18 @@ static HRESULT WINAPI package_statics_get_Current( IPackageStatics *iface, IPack
     if (!value) return E_INVALIDARG;
     *value = NULL;
     if (FAILED(hr = package_id_create( &id ))) return hr;
-    if (!(impl = calloc( 1, sizeof(*impl) )))
-    {
-        IPackageId_Release( id );
-        return E_OUTOFMEMORY;
-    }
-
-    impl->IPackage_iface.lpVtbl = &package_vtbl;
-    impl->IPackage2_iface.lpVtbl = &package2_vtbl;
-    impl->IPackage4_iface.lpVtbl = &package4_vtbl;
-    impl->ref = 1;
-    impl->id = id;
-    impl->metadata.status = package_metadata_read(impl_from_IPackageId(id), &impl->metadata);
-    impl->deployment_status = package_current_deployment(impl_from_IPackageId(id));
-    TRACE("current package deployment status %#lx.\n", impl->deployment_status);
-
-    *value = &impl->IPackage_iface;
-    TRACE( "created IPackage %p.\n", *value );
-    return S_OK;
+    if ((error = GetCurrentPackagePath( &length, NULL )) != ERROR_INSUFFICIENT_BUFFER)
+    { IPackageId_Release( id ); return HRESULT_FROM_WIN32( error ? error : ERROR_INVALID_DATA ); }
+    if (!length || length > 32768)
+    { IPackageId_Release( id ); return HRESULT_FROM_WIN32(ERROR_INVALID_DATA); }
+    if (!(root = malloc( length * sizeof(WCHAR) )))
+    { IPackageId_Release( id ); return E_OUTOFMEMORY; }
+    if ((error = GetCurrentPackagePath( &length, root )))
+    { free( root ); IPackageId_Release( id ); return HRESULT_FROM_WIN32(error); }
+    hr = package_create( id, root, TRUE, value );
+    free( root );
+    if (SUCCEEDED(hr)) TRACE( "created IPackage %p.\n", *value );
+    return hr;
 }
 
 static const struct IPackageStaticsVtbl package_statics_vtbl =
