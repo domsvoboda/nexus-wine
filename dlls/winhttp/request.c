@@ -969,6 +969,34 @@ static void remove_header( struct request *request, const WCHAR *header, BOOL re
     if (index != -1) delete_header( request, index );
 }
 
+/* XCurl reads raw response headers. After automatic content decoding both
+ * query views must describe the decoded body, not the compressed wire bytes. */
+static void remove_decoded_response_header( struct request *request, const WCHAR *name )
+{
+    WCHAR *line = request->raw_headers, *output = line;
+    SIZE_T name_length = wcslen( name );
+
+    while (get_header_index( request, name, 0, FALSE ) != -1)
+        remove_header( request, name, FALSE );
+    if (!line) return;
+    while (*line)
+    {
+        WCHAR *end = wcsstr( line, L"\r\n" );
+        SIZE_T length = end ? (SIZE_T)(end - line) : wcslen( line );
+        SIZE_T copied = length + (end ? 2 : 0);
+        BOOL remove = length > name_length && line[name_length] == ':' &&
+                      !wcsnicmp( line, name, name_length );
+        if (!remove)
+        {
+            memmove( output, line, copied * sizeof(WCHAR) );
+            output += copied;
+        }
+        if (!end) break;
+        line = end + 2;
+    }
+    *output = 0;
+}
+
 DWORD process_header( struct request *request, const WCHAR *field, const WCHAR *value, DWORD flags, BOOL request_only )
 {
     int index;
@@ -3089,7 +3117,8 @@ static DWORD set_content_length( struct request *request, DWORD status )
             { ret = init_gzip_stream( request, FALSE ); decode = TRUE; }
             if (decode && !ret)
             {
-                remove_header( request, L"Content-Length", FALSE );
+                remove_decoded_response_header( request, L"Content-Length" );
+                remove_decoded_response_header( request, L"Content-Encoding" );
                 request->content_length = ~0ull;
             }
         }
