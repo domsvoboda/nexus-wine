@@ -550,6 +550,204 @@ skip_tests:
     ok( ref == 1, "got ref %ld.\n", ref );
 }
 
+/* Package.Current only succeeds when the test image sits in a package tree
+ * with a manifest. The default Wine test run has no package identity, so this
+ * path is exercised by the native package probe or a disposable package
+ * fixture. A declared dependency that is not registered must fail honestly;
+ * a nonempty result requires an authenticated registered fixture. */
+static void test_PackageDependencies( IPackage *package )
+{
+    IVectorView_Package *dependencies;
+    IIterable_Package *iterable;
+    IIterator_Package *iterator;
+    IPackageId *id, *parent_id;
+    IPackage2 *package2;
+    IStorageFolder *folder;
+    IStorageItem *item;
+    IPackage *child;
+    HSTRING name, parent_name, path;
+    UINT32 size, count, index, i;
+    boolean has_current, moved, found, is_framework, is_resource;
+    HRESULT hr;
+
+    parent_id = NULL;
+    parent_name = NULL;
+    hr = IPackage_get_Id( package, &parent_id );
+    ok( hr == S_OK, "got hr %#lx.\n", hr );
+    if (SUCCEEDED(hr))
+    {
+        hr = IPackageId_get_FullName( parent_id, &parent_name );
+        ok( hr == S_OK, "got hr %#lx.\n", hr );
+        IPackageId_Release( parent_id );
+    }
+
+    hr = IPackage_get_Dependencies( package, NULL );
+    ok( hr == E_INVALIDARG, "got hr %#lx.\n", hr );
+
+    hr = IPackage_get_Dependencies( package, &dependencies );
+    if (FAILED(hr))
+    {
+        /* Before this implementation the getter returned E_NOTIMPL. A declared
+         * dependency that is not installed and authenticated must be an honest
+         * error, never a fabricated empty collection. */
+        ok( hr != E_NOTIMPL, "Dependencies still returns E_NOTIMPL.\n" );
+        ok( hr == HRESULT_FROM_WIN32(ERROR_NOT_FOUND) ||
+            hr == HRESULT_FROM_WIN32(ERROR_INVALID_DATA) ||
+            hr == HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED) ||
+            hr == TRUST_E_BAD_DIGEST || hr == E_OUTOFMEMORY,
+            "unexpected dependency error %#lx.\n", hr );
+        return;
+    }
+
+    ok( dependencies != NULL, "got dependencies %p.\n", dependencies );
+    check_interface( dependencies, &IID_IUnknown, TRUE, FALSE );
+    check_interface( dependencies, &IID_IInspectable, TRUE, FALSE );
+    check_interface( dependencies, &IID_IAgileObject, TRUE, FALSE );
+    check_interface( dependencies, &IID_IVectorView_Package, TRUE, FALSE );
+    check_interface( dependencies, &IID_IIterable_Package, TRUE, FALSE );
+
+    hr = IVectorView_Package_get_Size( dependencies, NULL );
+    ok( hr == E_POINTER, "got hr %#lx.\n", hr );
+    hr = IVectorView_Package_get_Size( dependencies, &size );
+    ok( hr == S_OK, "got hr %#lx.\n", hr );
+
+    child = (IPackage *)0xdeadbeef;
+    hr = IVectorView_Package_GetAt( dependencies, size, &child );
+    ok( hr == E_BOUNDS, "got hr %#lx.\n", hr );
+    ok( !child, "got child %p.\n", child );
+
+    count = 0xdeadbeef;
+    hr = IVectorView_Package_GetMany( dependencies, size, 0, NULL, &count );
+    ok( hr == S_OK && !count, "got hr %#lx, count %u.\n", hr, count );
+    hr = IVectorView_Package_GetMany( dependencies, size + 1, 0, NULL, &count );
+    ok( hr == E_BOUNDS, "got hr %#lx.\n", hr );
+
+    if (size)
+    {
+        IPackage **items = calloc( size, sizeof(*items) );
+        ok( !!items, "calloc failed.\n" );
+        if (items)
+        {
+            count = 0xdeadbeef;
+            hr = IVectorView_Package_GetMany( dependencies, 0, size, items, &count );
+            ok( hr == S_OK && count == size, "got hr %#lx, count %u, size %u.\n", hr, count, size );
+            for (i = 0; i < count; ++i) if (items[i]) IPackage_Release( items[i] );
+            free( items );
+        }
+
+        hr = IVectorView_Package_GetAt( dependencies, 0, &child );
+        ok( hr == S_OK && child != NULL, "got hr %#lx, child %p.\n", hr, child );
+        if (SUCCEEDED(hr))
+        {
+            index = 0xdeadbeef;
+            found = 0xff;
+            hr = IVectorView_Package_IndexOf( dependencies, child, &index, &found );
+            ok( hr == S_OK && found && !index, "got hr %#lx, found %d, index %u.\n", hr, found, index );
+            IPackage_Release( child );
+        }
+        index = 0xdeadbeef;
+        found = 0xff;
+        hr = IVectorView_Package_IndexOf( dependencies, NULL, &index, &found );
+        ok( hr == S_OK && !found && !index, "got hr %#lx, found %d, index %u.\n", hr, found, index );
+    }
+
+    hr = IVectorView_Package_QueryInterface( dependencies, &IID_IIterable_Package, (void **)&iterable );
+    ok( hr == S_OK, "got hr %#lx.\n", hr );
+    hr = IIterable_Package_First( iterable, &iterator );
+    ok( hr == S_OK, "got hr %#lx.\n", hr );
+    IIterable_Package_Release( iterable );
+
+    hr = IIterator_Package_get_HasCurrent( iterator, &has_current );
+    ok( hr == S_OK, "got hr %#lx.\n", hr );
+    ok( has_current == (size != 0), "got has_current %d, size %u.\n", has_current, size );
+
+    hr = IIterator_Package_get_Current( iterator, &child );
+    if (size)
+    {
+        ok( hr == S_OK, "got hr %#lx.\n", hr );
+        if (SUCCEEDED(hr)) IPackage_Release( child );
+    }
+    else
+    {
+        ok( hr == E_BOUNDS, "got hr %#lx.\n", hr );
+        ok( !child, "got child %p.\n", child );
+    }
+
+    for (i = 0; i < size; ++i)
+    {
+        hr = IIterator_Package_MoveNext( iterator, &moved );
+        ok( hr == S_OK, "got hr %#lx.\n", hr );
+        ok( moved == (i + 1 < size), "got moved %d at %u of %u.\n", moved, i + 1, size );
+    }
+    hr = IIterator_Package_get_Current( iterator, &child );
+    ok( hr == E_BOUNDS, "got hr %#lx.\n", hr );
+    ok( !child, "got child %p.\n", child );
+    hr = IIterator_Package_get_HasCurrent( iterator, &has_current );
+    ok( hr == S_OK && !has_current, "got hr %#lx, has_current %d.\n", hr, has_current );
+    IIterator_Package_Release( iterator );
+
+    for (i = 0; i < size; ++i)
+    {
+        hr = IVectorView_Package_GetAt( dependencies, i, &child );
+        ok( hr == S_OK, "got hr %#lx.\n", hr );
+        if (FAILED(hr)) continue;
+        ok( child != NULL, "got child %p.\n", child );
+        hr = IPackage_get_Id( child, &id );
+        ok( hr == S_OK, "got hr %#lx.\n", hr );
+        if (SUCCEEDED(hr))
+        {
+            hr = IPackageId_get_FullName( id, &name );
+            ok( hr == S_OK, "got hr %#lx.\n", hr );
+            if (SUCCEEDED(hr))
+            {
+                ok( WindowsGetStringLen( name ) > 0, "empty dependency full name.\n" );
+                if (parent_name)
+                    ok( wcscmp( WindowsGetStringRawBuffer( name, NULL ),
+                                WindowsGetStringRawBuffer( parent_name, NULL ) ),
+                        "dependency reuses the current package.\n" );
+                WindowsDeleteString( name );
+            }
+            IPackageId_Release( id );
+        }
+
+        hr = IPackage_QueryInterface( child, &IID_IPackage2, (void **)&package2 );
+        ok( hr == S_OK, "got hr %#lx.\n", hr );
+        if (SUCCEEDED(hr))
+        {
+            hr = IPackage_get_IsFramework( child, &is_framework );
+            ok( hr == S_OK, "got hr %#lx.\n", hr );
+            hr = IPackage2_get_IsResourcePackage( package2, &is_resource );
+            ok( hr == S_OK, "got hr %#lx.\n", hr );
+            ok( !(is_framework && is_resource), "package is both framework and resource.\n" );
+            IPackage2_Release( package2 );
+        }
+
+        hr = IPackage_get_InstalledLocation( child, &folder );
+        ok( hr == S_OK, "got hr %#lx.\n", hr );
+        if (SUCCEEDED(hr))
+        {
+            hr = IStorageFolder_QueryInterface( folder, &IID_IStorageItem, (void **)&item );
+            ok( hr == S_OK, "got hr %#lx.\n", hr );
+            if (SUCCEEDED(hr))
+            {
+                hr = IStorageItem_get_Path( item, &path );
+                ok( hr == S_OK, "got hr %#lx.\n", hr );
+                if (SUCCEEDED(hr))
+                {
+                    ok( WindowsGetStringLen( path ) > 0, "empty dependency location.\n" );
+                    WindowsDeleteString( path );
+                }
+                IStorageItem_Release( item );
+            }
+            IStorageFolder_Release( folder );
+        }
+        IPackage_Release( child );
+    }
+
+    if (parent_name) WindowsDeleteString( parent_name );
+    IVectorView_Package_Release( dependencies );
+}
+
 static void test_PackageStatics(void)
 {
     static const WCHAR *package_statics_name = L"Windows.ApplicationModel.Package";
@@ -581,9 +779,18 @@ static void test_PackageStatics(void)
     hr = IPackageStatics_get_Current( package_statics, NULL );
     ok( hr == E_INVALIDARG, "got hr %#lx.\n", hr );
     hr = IPackageStatics_get_Current( package_statics, &package );
-    ok( hr == 0x80073d54, "got hr %#lx.\n", hr );
-    ok( !package, "got package %p.\n", package );
-    if (package) IPackage_Release( package );
+    if (hr == S_OK)
+    {
+        ok( package != NULL, "got package %p.\n", package );
+        test_PackageDependencies( package );
+        IPackage_Release( package );
+    }
+    else
+    {
+        ok( hr == 0x80073d54, "got hr %#lx.\n", hr );
+        ok( !package, "got package %p.\n", package );
+        if (package) IPackage_Release( package );
+    }
 
     ref = IPackageStatics_Release( package_statics );
     ok( ref == 2, "got ref %ld.\n", ref );
