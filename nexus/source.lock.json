@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "base": "7fc704ef49c50e9702c9983a5250d5738697bb04",
-  "xgameruntime": "f1127c73532c1eeb8936424cf0e7bd1a7ebc01fa",
+  "xgameruntime": "45fcf22d45d1d94ec382123a25ba36a2253cc8a7",
   "files": {
     "loader/wine.inf.in": "7eab3069356f4bd9c69992ec690f21325a209e7996a6fa051d28450c91f413af",
     "dlls/windows.storage.applicationdata/Makefile.in": "87fe136e13ec37bb0222263268548657e782eebe91804729780522bd788bbe6c",
@@ -10,8 +10,8 @@
     "dlls/windows.storage.applicationdata/private.h": "d38b17cc6196ec8f503ac357667e7cac427a338c8a06a1bfe48a1d2dcc41822a",
     "dlls/windows.storage.applicationdata/cachefolder.c": "6e5a7a29fb2f22d822c344cca4f56cff83b313ea54c5105e0b190f33565177d9",
     "include/appmodel.h": "768a40ba75985c54a514295de4b522a84e6f5bd984492b04088d83144d5b5c48",
-    "dlls/windows.applicationmodel/package.c": "64eeec1fcac37e97f4d918c04bbf1b40f30aba79670d887b338d94b5fa94f7d3",
-    "dlls/windows.applicationmodel/tests/model.c": "4b2218a627e80191810ddc390a3d2d74dc093d5f1e9132680edaeaca971985bc",
+    "dlls/windows.applicationmodel/package.c": "e8e5a3a9a5b3a22a270b030bd0b3814cb40e8a0a14fcd2f39060575c3434860c",
+    "dlls/windows.applicationmodel/tests/model.c": "08e148af2b211f67d5b066eaa63e58138d4134c3417b2d96c9ccdd90fce26124",
     "configure.ac": "d2aa798d69c7708e5dd1196d93470b724db8d1acec130b327eb666042fae83af",
     "dlls/advapi32/cred.c": "993bc2bf27d2797da7f11b026b1bf1bfb8abf37ca75334a801a55627c4eced62",
     "dlls/bcrypt/gnutls.c": "3ae97eeb5eaf0a474d081e1089a3c958c8c0fc0062379312394dcf5d76661dab",
@@ -65,7 +65,7 @@
     "dlls/wintypes/main.c": "af0e657d462c19090b4791b31837dba960448bfb111e30a90990f5090ec939da",
     "dlls/windows.applicationmodel/Makefile.in": "618bfa0d1c29fcb52382a8cd0554dea4bc5ec8d49275408af9fd0c7cbe2888aa",
     "dlls/windows.applicationmodel/main.c": "9f8c16a9144964e47d3daafad840000e73025e46da0041f351fe8c209e5d9874",
-    "dlls/windows.applicationmodel/package_metadata.h": "85aba72ba3b0122ef54b2679101bdd6cafc7a3c7c6a232ea5a6249a86cb47088",
+    "dlls/windows.applicationmodel/package_metadata.h": "9663d491467fedef5b7f719e3ddc09f34b0fd457039f0ddb426df1806b732d9a",
     "include/windows.applicationmodel.idl": "6d20c0e520c9014492f5704e510553e7615ea2c0c13e1441e39bed3088d5256c",
     "dlls/windows.applicationmodel/package_container.h": "3839cfbe77e2146adf1923749e6a2bf29bef8a5274e7874d69026f78442314f7",
     "dlls/windows.applicationmodel/package_container_key.h": "3f4c0d604f547eb8f7263192ddfe737c883a2017887d2667b01ff0f4b81e933c",
@@ -92,6 +92,7 @@
     "dlls/ntdll/unixlib.h": "0e3668417ce43ce70335841d4221c28adda6a6f252bd812d1285be5a1562f9d3",
     "dlls/winhttp/winhttp.spec": "a851f73363db9b20fcc0a6dc8d2630ade7657b96b1f56d4367d9b2defe6679bf",
     "dlls/winhttp/tests/Makefile.in": "d73bd87967f3c81c5ec90f333fa425b4efb1545ba8cc5aa29ed5e0fa218d8295",
-    "dlls/winhttp/tests/cancellation.c": "f715a34efd9f51acdce016461c6f4feb7bc4fbe5d6ec8129373b0b66864ac786"
+    "dlls/winhttp/tests/cancellation.c": "f715a34efd9f51acdce016461c6f4feb7bc4fbe5d6ec8129373b0b66864ac786",
+    "dlls/windows.applicationmodel/package_dependencies.h": "e8a858ec50f7cad3cc2f2118f19f90782a65bcc7eaef2ba6b228a6be267c1abd"
   }
 }
