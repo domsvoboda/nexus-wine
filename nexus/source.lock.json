@@ -3,6 +3,8 @@
   "base": "7fc704ef49c50e9702c9983a5250d5738697bb04",
   "xgameruntime": "45fcf22d45d1d94ec382123a25ba36a2253cc8a7",
   "files": {
+    "nexus/tests/gameinput-callback.c": "dcaf7fefa68fd0bd08c24d439d0c1ac2f39c6601b03c1cc0db49b1432c1fb84c",
+    "dlls/gameinput/gameinput.c": "0b87b47b1ff5dadd4c79704f87f392bc5b4dfe78901450499931c8608546096c",
     "loader/wine.inf.in": "7eab3069356f4bd9c69992ec690f21325a209e7996a6fa051d28450c91f413af",
     "dlls/windows.storage.applicationdata/Makefile.in": "87fe136e13ec37bb0222263268548657e782eebe91804729780522bd788bbe6c",
     "dlls/windows.storage.applicationdata/applicationdata.c": "d40619b5cb289d5d1387e8c6cef0f07f6e77f6a68ab7c8ea06e230c49239804e",
@@ -72,6 +74,7 @@
     "dlls/windows.applicationmodel/package_deployment.h": "5985a322b3a2e4f2934e8defec42b22621d166b724b1f66c068781da5a6e53cf",
     "nexus/tools/package-register.c": "a2d2ab9ab76480bf427ff2133c073bc2af911abbab7773f5d2dd5c832eb42995",
     "include/Makefile.in": "44cebddbd4f3e95979373fadd8c39438ae08273f7e1726b15d6a6b4104467c34",
+    "include/winhttp.h": "cbe7f364d4cf232d584913089b96fe506f1546ade1fd2a3ba96a21ad828303fb",
     "include/windows.foundation.diagnostics.idl": "c5c041946e0c556aa2d21ee265ffba765942cc0dbb6b85265aca5d31afce3224",
     "dlls/windows.foundation.diagnostics/Makefile.in": "3a24d7e21fef0f6cda8eba5ee98cd2cb0380d468a53a71f2236c97b25327d161",
     "dlls/windows.foundation.diagnostics/classes.idl": "a27965912c77055d0600b7d540a641c44a4c842c12159904703c729e58d475ac",
@@ -93,7 +96,6 @@
     "dlls/winhttp/winhttp.spec": "11f517066f867f821236e39e6e3a5c76583830e2a90713248b45a9f5bf576cb1",
     "dlls/winhttp/tests/Makefile.in": "d73bd87967f3c81c5ec90f333fa425b4efb1545ba8cc5aa29ed5e0fa218d8295",
     "dlls/winhttp/tests/cancellation.c": "f715a34efd9f51acdce016461c6f4feb7bc4fbe5d6ec8129373b0b66864ac786",
-    "dlls/windows.applicationmodel/package_dependencies.h": "e8a858ec50f7cad3cc2f2118f19f90782a65bcc7eaef2ba6b228a6be267c1abd",
-    "include/winhttp.h": "cbe7f364d4cf232d584913089b96fe506f1546ade1fd2a3ba96a21ad828303fb"
+    "dlls/windows.applicationmodel/package_dependencies.h": "e8a858ec50f7cad3cc2f2118f19f90782a65bcc7eaef2ba6b228a6be267c1abd"
   }
 }
