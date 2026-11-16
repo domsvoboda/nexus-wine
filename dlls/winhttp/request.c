@@ -969,8 +969,10 @@ static void remove_header( struct request *request, const WCHAR *header, BOOL re
     if (index != -1) delete_header( request, index );
 }
 
-/* XCurl reads raw response headers. After automatic content decoding both
- * query views must describe the decoded body, not the compressed wire bytes. */
+/* Remove a response header from both the parsed table and the raw header block.
+ * The raw block is compacted in place: retained lines are memmove'd left, so the
+ * output never grows and never overwrites an unread line. Request headers are not
+ * touched (request_only is FALSE for response headers). */
 static void remove_decoded_response_header( struct request *request, const WCHAR *name )
 {
     WCHAR *line = request->raw_headers, *output = line;
@@ -995,6 +997,25 @@ static void remove_decoded_response_header( struct request *request, const WCHAR
         line = end + 2;
     }
     *output = 0;
+}
+
+/* TRUE when the response carries exactly one Content-Encoding field and its whole
+ * value is the given supported token. Multiple or repeated codings are left
+ * undecoded so that no still-coded body is ever described as unencoded. */
+static BOOL single_supported_coding( struct request *request, const WCHAR *token )
+{
+    int index;
+    BOOL found = FALSE;
+
+    if (wcsicmp( token, L"gzip" ) && wcsicmp( token, L"deflate" )) return FALSE;
+    for (index = 0; index < request->num_headers; index++)
+    {
+        struct header *header = &request->headers[index];
+        if (header->is_request || wcsicmp( header->field, L"Content-Encoding" )) continue;
+        if (found || wcsicmp( header->value, token )) return FALSE;
+        found = TRUE;
+    }
+    return found;
 }
 
 DWORD process_header( struct request *request, const WCHAR *field, const WCHAR *value, DWORD flags, BOOL request_only )
@@ -1125,55 +1146,6 @@ BOOL WINAPI WinHttpAddRequestHeaders( HINTERNET hrequest, const WCHAR *headers, 
     return !ret;
 }
 
-static WCHAR *build_absolute_request_path( struct request *request, const WCHAR **path )
-{
-    const WCHAR *scheme;
-    WCHAR *ret;
-    int len, offset;
-
-    scheme = (request->netconn ? request->netconn->secure : (request->hdr.flags & WINHTTP_FLAG_SECURE)) ? L"https" : L"http";
-
-    len = lstrlenW( scheme ) + lstrlenW( request->connect->hostname ) + 4; /* '://' + nul */
-    if (request->connect->hostport) len += 6; /* ':' between host and port, up to 5 for port */
-
-    len += lstrlenW( request->path );
-    if ((ret = malloc( len * sizeof(WCHAR) )))
-    {
-        offset = swprintf( ret, len, L"%s://%s", scheme, request->connect->hostname );
-        if (request->connect->hostport)
-        {
-            offset += swprintf( ret + offset, len - offset, L":%u", request->connect->hostport );
-        }
-        lstrcpyW( ret + offset, request->path );
-        if (path) *path = ret + offset;
-    }
-
-    return ret;
-}
-
-static WCHAR *build_request_string( struct request *request )
-{
-    WCHAR *path, *ret;
-    unsigned int i, len;
-
-    if (!wcsicmp( request->connect->hostname, request->connect->servername )) path = request->path;
-    else if (!(path = build_absolute_request_path( request, NULL ))) return NULL;
-
-    len = lstrlenW( request->verb ) + 1 /* ' ' */;
-    len += lstrlenW( path ) + 1 /* ' ' */;
-    len += lstrlenW( request->version );
-
-    for (i = 0; i < request->num_headers; i++)
-    {
-        if (request->headers[i].is_request)
-            len += lstrlenW( request->headers[i].field ) + lstrlenW( request->headers[i].value ) + 4; /* '\r\n: ' */
-    }
-    len += 4; /* '\r\n\r\n' */
-
-    if ((ret = malloc( (len + 1) * sizeof(WCHAR) )))
-    {
-        lstrcpyW( ret, request->verb );
-        lstrcatW( ret, L" " );
 /* Modifiers accepted by WinHttpAddRequestHeadersEx. They share the values of the
  * WinHttpAddRequestHeaders flags, but are a separate, 32-bit parameter. Unknown
  * modifier bits are rejected; the exact native behaviour for them is not verified. */
@@ -1330,6 +1302,55 @@ done:
     return ret;
 }
 
+static WCHAR *build_absolute_request_path( struct request *request, const WCHAR **path )
+{
+    const WCHAR *scheme;
+    WCHAR *ret;
+    int len, offset;
+
+    scheme = (request->netconn ? request->netconn->secure : (request->hdr.flags & WINHTTP_FLAG_SECURE)) ? L"https" : L"http";
+
+    len = lstrlenW( scheme ) + lstrlenW( request->connect->hostname ) + 4; /* '://' + nul */
+    if (request->connect->hostport) len += 6; /* ':' between host and port, up to 5 for port */
+
+    len += lstrlenW( request->path );
+    if ((ret = malloc( len * sizeof(WCHAR) )))
+    {
+        offset = swprintf( ret, len, L"%s://%s", scheme, request->connect->hostname );
+        if (request->connect->hostport)
+        {
+            offset += swprintf( ret + offset, len - offset, L":%u", request->connect->hostport );
+        }
+        lstrcpyW( ret + offset, request->path );
+        if (path) *path = ret + offset;
+    }
+
+    return ret;
+}
+
+static WCHAR *build_request_string( struct request *request )
+{
+    WCHAR *path, *ret;
+    unsigned int i, len;
+
+    if (!wcsicmp( request->connect->hostname, request->connect->servername )) path = request->path;
+    else if (!(path = build_absolute_request_path( request, NULL ))) return NULL;
+
+    len = lstrlenW( request->verb ) + 1 /* ' ' */;
+    len += lstrlenW( path ) + 1 /* ' ' */;
+    len += lstrlenW( request->version );
+
+    for (i = 0; i < request->num_headers; i++)
+    {
+        if (request->headers[i].is_request)
+            len += lstrlenW( request->headers[i].field ) + lstrlenW( request->headers[i].value ) + 4; /* '\r\n: ' */
+    }
+    len += 4; /* '\r\n\r\n' */
+
+    if ((ret = malloc( (len + 1) * sizeof(WCHAR) )))
+    {
+        lstrcpyW( ret, request->verb );
+        lstrcatW( ret, L" " );
         lstrcatW( ret, path );
         lstrcatW( ret, L" " );
         lstrcatW( ret, request->version );
@@ -3268,11 +3289,17 @@ static DWORD set_content_length( struct request *request, DWORD status )
         {
             BOOL decode = FALSE;
             if (!wcsicmp( buf, L"gzip" ) && (request->hdr.decompression & WINHTTP_DECOMPRESSION_FLAG_GZIP))
-            { ret = init_gzip_stream( request, TRUE ); decode = TRUE; }
+            {
+                if (single_supported_coding( request, L"gzip" )) { ret = init_gzip_stream( request, TRUE ); decode = TRUE; }
+            }
             else if (!wcsicmp( buf, L"deflate" ) && (request->hdr.decompression & WINHTTP_DECOMPRESSION_FLAG_DEFLATE))
-            { ret = init_gzip_stream( request, FALSE ); decode = TRUE; }
+            {
+                if (single_supported_coding( request, L"deflate" )) { ret = init_gzip_stream( request, FALSE ); decode = TRUE; }
+            }
             if (decode && !ret)
             {
+                /* The body is now decoded, so both header views must describe the decoded
+                 * body: drop the coding and the compressed wire length. */
                 remove_decoded_response_header( request, L"Content-Length" );
                 remove_decoded_response_header( request, L"Content-Encoding" );
                 request->content_length = ~0ull;

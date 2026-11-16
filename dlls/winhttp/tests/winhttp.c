@@ -6719,6 +6719,252 @@ static void test_decompression(void)
     WinHttpCloseHandle( ses );
 }
 
+/* Localhost-only decompression-header checks: a decoded response must not keep the
+ * coding or the compressed wire length in either the parsed or the raw header view,
+ * and multiple codings must stay untouched. */
+static const unsigned char pr33_single_gzip[] =
+{
+    0x1f,0x8b,0x08,0x00,0x00,0x00,0x00,0x00,0x02,0xff,0xcb,0x48,0xcd,0xc9,0xc9,0x57,
+    0x08,0x08,0x32,0x36,0xe6,0x02,0x00,0xde,0x28,0x9b,0x9a,0x0b,0x00,0x00,0x00
+};
+static const unsigned char pr33_double_gzip[] =
+{
+    0x1f,0x8b,0x08,0x00,0x00,0x00,0x00,0x00,0x02,0xff,0x93,0xef,0xe6,0x60,0x00,0x01,
+    0xa6,0xff,0xa7,0x3d,0xce,0x9e,0x3c,0x19,0xce,0xc1,0x61,0x64,0xf6,0x8c,0x89,0xe1,
+    0x9e,0xc6,0xec,0x59,0xdc,0x0c,0x0c,0x0c,0x00,0xe0,0x6e,0x61,0x5e,0x1f,0x00,0x00,0x00
+};
+static const unsigned char pr33_raw_deflate[] =
+{
+    0xcb,0x48,0xcd,0xc9,0xc9,0x57,0x08,0x08,0x32,0x36,0xe6,0x02,0x00
+};
+static const char pr33_plain[] = "hello PR33\n";
+
+struct pr33_server
+{
+    const char *encoding;
+    const char *second;
+    const unsigned char *body;
+    DWORD body_len;
+    SOCKET listener;
+    HANDLE ready;
+    LONG port;
+    BOOL send_fail;         /* fault mode: close before sending anything */
+};
+
+/* Readiness waits are bounded, and socket operations are nonblocking even if
+ * readiness changes before the operation. The worker owns its accepted socket. */
+static BOOL pr33_wait_readable( SOCKET sock, DWORD timeout )
+{
+    fd_set set;
+    struct timeval tv;
+
+    FD_ZERO( &set );
+    FD_SET( sock, &set );
+    tv.tv_sec = timeout / 1000;
+    tv.tv_usec = (timeout % 1000) * 1000;
+    return select( 0, &set, NULL, NULL, &tv ) == 1;
+}
+
+static BOOL pr33_wait_writable( SOCKET sock, DWORD timeout )
+{
+    fd_set set;
+    struct timeval tv;
+
+    FD_ZERO( &set );
+    FD_SET( sock, &set );
+    tv.tv_sec = timeout / 1000;
+    tv.tv_usec = (timeout % 1000) * 1000;
+    return select( 0, NULL, &set, NULL, &tv ) == 1;
+}
+
+static DWORD WINAPI pr33_serve( void *ctx )
+{
+    struct pr33_server *s = ctx;
+    struct sockaddr_in addr;
+    SOCKET client = INVALID_SOCKET;
+    char request[4096], header[1024];
+    int len = sizeof(addr), header_len;
+    u_long nonblocking = 1;
+    DWORD result = 1;
+
+    memset( &addr, 0, sizeof(addr) );
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl( INADDR_LOOPBACK );
+    if (bind( s->listener, (struct sockaddr *)&addr, sizeof(addr) ) ||
+        listen( s->listener, 1 ) ||
+        getsockname( s->listener, (struct sockaddr *)&addr, &len ) ||
+        ioctlsocket( s->listener, FIONBIO, &nonblocking ))
+    {
+        SetEvent( s->ready );
+        return result;
+    }
+    InterlockedExchange( &s->port, ntohs( addr.sin_port ) );
+    SetEvent( s->ready );
+
+    if (!pr33_wait_readable( s->listener, 5000 )) return result;
+    client = accept( s->listener, NULL, NULL );
+    if (client == INVALID_SOCKET) return result;
+    if (ioctlsocket( client, FIONBIO, &nonblocking )) goto done;
+    if (s->send_fail)
+    {
+        result = 0;
+        goto done;
+    }
+    if (!pr33_wait_readable( client, 5000 ) || recv( client, request, sizeof(request), 0 ) <= 0) goto done;
+    if (s->second)
+        header_len = snprintf( header, sizeof(header), "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Encoding: %s\r\nContent-Encoding: %s\r\n\r\n",
+                               (unsigned long)s->body_len, s->encoding, s->second );
+    else
+        header_len = snprintf( header, sizeof(header), "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Encoding: %s\r\n\r\n",
+                               (unsigned long)s->body_len, s->encoding );
+    if (!pr33_wait_writable( client, 5000 ) || send( client, header, header_len, 0 ) != header_len) goto done;
+    if (!pr33_wait_writable( client, 5000 ) ||
+        send( client, (const char *)s->body, (int)s->body_len, 0 ) != (int)s->body_len) goto done;
+    result = 0;
+done:
+    closesocket( client );
+    return result;
+}
+
+/* Never return to a stack owner while its worker is live. All worker socket
+ * calls are nonblocking; readiness waits have deadlines. An unexpected failed
+ * join aborts only this test process rather than reusing live worker state. */
+static void pr33_join( struct pr33_server *s, HANDLE thread )
+{
+    DWORD wait;
+    BOOL listener_closed = FALSE;
+
+    if ((wait = WaitForSingleObject( thread, 15000 )) == WAIT_TIMEOUT)
+    {
+        if (s->listener != INVALID_SOCKET) closesocket( s->listener );
+        listener_closed = TRUE;
+        wait = WaitForSingleObject( thread, 15000 );
+    }
+    if (wait != WAIT_OBJECT_0)
+    {
+        ok( 0, "server worker did not exit (%lu)\n", wait );
+        ExitProcess( 1 );
+    }
+    if (listener_closed) s->listener = INVALID_SOCKET;
+}
+
+static void test_decompression_headers(void)
+{
+    static const struct
+    {
+        const char *label;
+        const char *encoding, *second;
+        const unsigned char *body;
+        DWORD body_len, option;
+        BOOL decoded, send_fail;
+    }
+    cases[] =
+    {
+        { "gzip enabled", "gzip", NULL, pr33_single_gzip, sizeof(pr33_single_gzip), WINHTTP_DECOMPRESSION_FLAG_GZIP, TRUE, FALSE },
+        { "deflate enabled", "deflate", NULL, pr33_raw_deflate, sizeof(pr33_raw_deflate), WINHTTP_DECOMPRESSION_FLAG_DEFLATE, TRUE, FALSE },
+        { "gzip disabled", "gzip", NULL, pr33_single_gzip, sizeof(pr33_single_gzip), 0, FALSE, FALSE },
+        { "two gzip fields", "gzip", "gzip", pr33_double_gzip, sizeof(pr33_double_gzip), WINHTTP_DECOMPRESSION_FLAG_ALL, FALSE, FALSE },
+        { "gzip, gzip one field", "gzip, gzip", NULL, pr33_double_gzip, sizeof(pr33_double_gzip), WINHTTP_DECOMPRESSION_FLAG_ALL, FALSE, FALSE },
+        { "early disconnect", "gzip", NULL, pr33_single_gzip, sizeof(pr33_single_gzip), WINHTTP_DECOMPRESSION_FLAG_GZIP, FALSE, TRUE },
+    };
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(cases); i++)
+    {
+        struct pr33_server s;
+        HINTERNET session = NULL, connection = NULL, request = NULL;
+        HANDLE thread = NULL;
+        char body[256];
+        WCHAR text[4096];
+        DWORD size, read = 0, status = 0, option = cases[i].option;
+        BOOL sent;
+
+        memset( &s, 0, sizeof(s) );
+        s.encoding = cases[i].encoding;
+        s.second = cases[i].second;
+        s.body = cases[i].body;
+        s.body_len = cases[i].body_len;
+        s.send_fail = cases[i].send_fail;
+        s.listener = socket( AF_INET, SOCK_STREAM, IPPROTO_TCP );
+        s.ready = CreateEventW( NULL, TRUE, FALSE, NULL );
+        if (s.listener == INVALID_SOCKET || !s.ready ||
+            !(thread = CreateThread( NULL, 0, pr33_serve, &s, 0, NULL )))
+        {
+            ok( 0, "%s: server creation failed\n", cases[i].label );
+            goto next;
+        }
+        if (WaitForSingleObject( s.ready, 5000 ) != WAIT_OBJECT_0 || !s.port)
+        {
+            ok( 0, "%s: server not ready\n", cases[i].label );
+            goto next;
+        }
+        session = WinHttpOpen( L"winetest", WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, 0 );
+        if (session) WinHttpSetTimeouts( session, 5000, 5000, 5000, 5000 );
+        connection = WinHttpConnect( session, L"127.0.0.1", (INTERNET_PORT)s.port, 0 );
+        request = WinHttpOpenRequest( connection, L"GET", L"/gzip", NULL, NULL, NULL, 0 );
+        if (option) WinHttpSetOption( request, WINHTTP_OPTION_DECOMPRESSION, &option, sizeof(option) );
+        sent = WinHttpSendRequest( request, NULL, 0, NULL, 0, 0, 0 ) && WinHttpReceiveResponse( request, NULL );
+        if (cases[i].send_fail)
+        {
+            /* The peer accepted and closed without a response: the client must fail
+             * cleanly, and the worker must be joined before its state is released. */
+            ok( !sent, "%s: request unexpectedly succeeded\n", cases[i].label );
+        }
+        else if (!sent)
+        {
+            ok( 0, "%s: request failed %lu\n", cases[i].label, GetLastError() );
+            goto next;
+        }
+        else
+        {
+            size = sizeof(status);
+            WinHttpQueryHeaders( request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, NULL, &status, &size, NULL );
+            ok( status == HTTP_STATUS_OK, "%s: status %lu\n", cases[i].label, status );
+            memset( body, 0, sizeof(body) );
+            ok( WinHttpReadData( request, body, sizeof(body), &read ), "%s: read failed %lu\n", cases[i].label, GetLastError() );
+            if (cases[i].decoded)
+            {
+                ok( read == strlen(pr33_plain) && !memcmp( body, pr33_plain, read ), "%s: body not decoded\n", cases[i].label );
+                size = sizeof(text);
+                ok( !WinHttpQueryHeaders( request, WINHTTP_QUERY_CONTENT_ENCODING, NULL, text, &size, NULL ),
+                    "%s: parsed Content-Encoding kept\n", cases[i].label );
+                size = sizeof(text);
+                ok( !WinHttpQueryHeaders( request, WINHTTP_QUERY_CONTENT_LENGTH, NULL, text, &size, NULL ),
+                    "%s: parsed Content-Length kept\n", cases[i].label );
+                size = sizeof(text);
+                ok( WinHttpQueryHeaders( request, WINHTTP_QUERY_RAW_HEADERS_CRLF, NULL, text, &size, NULL ) &&
+                    !wcsstr( text, L"Content-Encoding" ) && !wcsstr( text, L"Content-Length" ) && wcsstr( text, L"200 OK" ),
+                    "%s: raw headers not cleaned\n", cases[i].label );
+            }
+            else
+            {
+                ok( read == cases[i].body_len && !memcmp( body, cases[i].body, read ), "%s: body changed\n", cases[i].label );
+                size = sizeof(status);
+                ok( WinHttpQueryHeaders( request, WINHTTP_QUERY_CONTENT_LENGTH | WINHTTP_QUERY_FLAG_NUMBER, NULL, &status, &size, NULL ) &&
+                    status == cases[i].body_len, "%s: compressed Content-Length changed\n", cases[i].label );
+                size = sizeof(text);
+                ok( WinHttpQueryHeaders( request, WINHTTP_QUERY_CONTENT_ENCODING, NULL, text, &size, NULL ),
+                    "%s: parsed Content-Encoding dropped\n", cases[i].label );
+                size = sizeof(text);
+                ok( WinHttpQueryHeaders( request, WINHTTP_QUERY_RAW_HEADERS_CRLF, NULL, text, &size, NULL ) &&
+                    wcsstr( text, L"Content-Encoding" ), "%s: raw Content-Encoding dropped\n", cases[i].label );
+            }
+        }
+next:
+        WinHttpCloseHandle( request );
+        WinHttpCloseHandle( connection );
+        WinHttpCloseHandle( session );
+        if (thread)
+        {
+            pr33_join( &s, thread );
+            CloseHandle( thread );
+        }
+        if (s.ready) CloseHandle( s.ready );
+        if (s.listener != INVALID_SOCKET) closesocket( s.listener );
+    }
+}
+
+
 START_TEST (winhttp)
 {
     struct server_info si;
@@ -6732,6 +6978,7 @@ START_TEST (winhttp)
     pWinHttpWebSocketSend = (void *)GetProcAddress(mod, "WinHttpWebSocketSend");
     pWinHttpWebSocketShutdown = (void *)GetProcAddress(mod, "WinHttpWebSocketShutdown");
     pWinHttpWebSocketReceive = (void *)GetProcAddress(mod, "WinHttpWebSocketReceive");
+    pWinHttpAddRequestHeadersEx = (void *)GetProcAddress(mod, "WinHttpAddRequestHeadersEx");
 
     test_WinHttpOpenRequest();
     test_WinHttpSendRequest();
@@ -6739,6 +6986,7 @@ START_TEST (winhttp)
     test_WinHttpTimeFromSystemTime();
     test_WinHttpTimeToSystemTime();
     test_WinHttpAddHeaders();
+    test_WinHttpAddRequestHeadersEx();
     test_secure_connection();
     test_client_cert_authentication();
     test_request_parameter_defaults();
@@ -6754,6 +7002,7 @@ START_TEST (winhttp)
     test_chunked_read();
     test_max_http_automatic_redirects();
     test_decompression();
+    test_decompression_headers();
 
     si.event = CreateEventW(NULL, 0, 0, NULL);
     si.port = 7532;
@@ -6798,5 +7047,3 @@ START_TEST (winhttp)
     WaitForSingleObject(thread, 3000);
     CloseHandle(thread);
 }
-    pWinHttpAddRequestHeadersEx = (void *)GetProcAddress(mod, "WinHttpAddRequestHeadersEx");
-    test_WinHttpAddRequestHeadersEx();
