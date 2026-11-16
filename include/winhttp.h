@@ -862,6 +862,23 @@ typedef struct _WINHTTP_WEB_SOCKET_STATUS
 #define WINHTTP_WEB_SOCKET_MAX_CLOSE_REASON_LENGTH   123
 #define WINHTTP_WEB_SOCKET_MIN_KEEPALIVE_VALUE     15000
 
+/* Extended request headers (WinHttpAddRequestHeadersEx) */
+#define WINHTTP_EXTENDED_HEADER_FLAG_UNICODE            0x00000001
+
+typedef struct _WINHTTP_EXTENDED_HEADER
+{
+    union
+    {
+        PCWSTR pwszName;
+        PCSTR  pszName;
+    };
+    union
+    {
+        PCWSTR pwszValue;
+        PCSTR  pszValue;
+    };
+} WINHTTP_EXTENDED_HEADER, *PWINHTTP_EXTENDED_HEADER;
+
 #ifdef __SCHANNEL_H__
 
 typedef struct _WINHTTP_SECURITY_INFO
@@ -877,6 +894,7 @@ extern "C" {
 #endif
 
 WINHTTPAPI BOOL        WINAPI WinHttpAddRequestHeaders(HINTERNET,LPCWSTR,DWORD,DWORD);
+WINHTTPAPI DWORD       WINAPI WinHttpAddRequestHeadersEx(HINTERNET,DWORD,ULONGLONG,ULONGLONG,DWORD,WINHTTP_EXTENDED_HEADER*);
 WINHTTPAPI BOOL        WINAPI WinHttpDetectAutoProxyConfigUrl(DWORD,LPWSTR*);
 WINHTTPAPI BOOL        WINAPI WinHttpCheckPlatform(void);
 WINHTTPAPI BOOL        WINAPI WinHttpCloseHandle(HINTERNET);

@@ -3,6 +3,7 @@
 @ stdcall -private DllRegisterServer()
 @ stdcall -private DllUnregisterServer()
 @ stdcall WinHttpAddRequestHeaders(ptr wstr long long)
+@ stdcall WinHttpAddRequestHeadersEx(ptr long int64 int64 long ptr)
 @ stdcall WinHttpCheckPlatform()
 @ stdcall WinHttpCloseHandle(ptr)
 @ stdcall WinHttpConnect(ptr wstr long long)

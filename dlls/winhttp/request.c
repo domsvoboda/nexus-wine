@@ -1146,6 +1146,162 @@ static WCHAR *build_request_string( struct request *request )
     {
         lstrcpyW( ret, request->verb );
         lstrcatW( ret, L" " );
+/* Modifiers accepted by WinHttpAddRequestHeadersEx. They share the values of the
+ * WinHttpAddRequestHeaders flags, but are a separate, 32-bit parameter. Unknown
+ * modifier bits are rejected; the exact native behaviour for them is not verified. */
+#define EXTENDED_HEADER_MODIFIERS (WINHTTP_ADDREQ_FLAG_ADD_IF_NEW | WINHTTP_ADDREQ_FLAG_ADD \
+                                   | WINHTTP_ADDREQ_FLAG_COALESCE_WITH_COMMA \
+                                   | WINHTTP_ADDREQ_FLAG_COALESCE_WITH_SEMICOLON \
+                                   | WINHTTP_ADDREQ_FLAG_REPLACE)
+
+/* The only documented WinHttpAddRequestHeadersEx flag: names and values are UTF-16.
+ * Unknown bits are rejected; the exact native behaviour for them is not verified. */
+#define EXTENDED_HEADER_FLAGS (WINHTTP_EXTENDED_HEADER_FLAG_UNICODE)
+
+/* Maximum number of WCHAR characters accepted for a field name or value. */
+#define EXTENDED_HEADER_MAX_LEN 0x7fffffff
+
+/* Convert a narrow extended header string using the ANSI code page. The
+ * documentation only says "narrow"; UTF-8 versus ANSI is not verified. Returns
+ * ERROR_SUCCESS and a NUL-terminated string, or an error code. */
+static DWORD extended_header_from_ansi( const char *src, WCHAR **ret )
+{
+    WCHAR *dst;
+    int len;
+
+    *ret = NULL;
+    if (!(len = MultiByteToWideChar( CP_ACP, 0, src, -1, NULL, 0 ))) return GetLastError();
+    if (len > EXTENDED_HEADER_MAX_LEN) return ERROR_INVALID_PARAMETER;
+    if (!(dst = malloc( len * sizeof(WCHAR) ))) return ERROR_OUTOFMEMORY;
+    if (!MultiByteToWideChar( CP_ACP, 0, src, -1, dst, len ))
+    {
+        DWORD err = GetLastError();
+        free( dst );
+        return err;
+    }
+    *ret = dst;
+    return ERROR_SUCCESS;
+}
+
+/***********************************************************************
+ *          WinHttpAddRequestHeadersEx (winhttp.@)
+ */
+DWORD WINAPI WinHttpAddRequestHeadersEx( HINTERNET hrequest, DWORD modifiers, ULONGLONG flags,
+                                         ULONGLONG reserved, DWORD count,
+                                         WINHTTP_EXTENDED_HEADER *headers )
+{
+    DWORD i, ret = ERROR_SUCCESS;
+    struct request *request;
+
+    TRACE( "%p, %#lx, %#I64x, %#I64x, %lu, %p\n", hrequest, modifiers, flags, reserved, count, headers );
+
+    if (!(request = (struct request *)grab_object( hrequest )))
+    {
+        SetLastError( ERROR_INVALID_HANDLE );
+        return GetLastError();
+    }
+    if (request->hdr.type != WINHTTP_HANDLE_TYPE_REQUEST)
+    {
+        release_object( &request->hdr );
+        SetLastError( ERROR_WINHTTP_INCORRECT_HANDLE_TYPE );
+        return GetLastError();
+    }
+    if (modifiers & ~EXTENDED_HEADER_MODIFIERS)
+    {
+        WARN( "unsupported modifiers %#lx\n", modifiers );
+        ret = ERROR_INVALID_PARAMETER;
+        goto done;
+    }
+    if (flags & ~EXTENDED_HEADER_FLAGS)
+    {
+        WARN( "unsupported flags %#I64x\n", flags );
+        ret = ERROR_INVALID_PARAMETER;
+        goto done;
+    }
+    if (reserved)
+    {
+        WARN( "unsupported reserved value %#I64x\n", reserved );
+        ret = ERROR_INVALID_PARAMETER;
+        goto done;
+    }
+    if (count && !headers)
+    {
+        ret = ERROR_INVALID_PARAMETER;
+        goto done;
+    }
+
+    /* Entries are applied in order; a failing entry stops processing and is
+     * reported, entries before it stay applied (partial apply). */
+    for (i = 0; i < count; i++)
+    {
+        WCHAR *name_buf = NULL, *value_buf = NULL;
+        const WCHAR *name = NULL, *value = NULL, *p;
+        BOOL unicode = flags & WINHTTP_EXTENDED_HEADER_FLAG_UNICODE;
+
+        if (unicode)
+        {
+            name = headers[i].pwszName;
+            value = headers[i].pwszValue;
+        }
+        else
+        {
+            if (headers[i].pszName && (ret = extended_header_from_ansi( headers[i].pszName, &name_buf )))
+                goto done;
+            if (headers[i].pszValue && (ret = extended_header_from_ansi( headers[i].pszValue, &value_buf )))
+            {
+                free( name_buf );
+                goto done;
+            }
+            name = name_buf;
+            value = value_buf;
+        }
+
+        /* Validate the entry with the same rules as WinHttpAddRequestHeaders
+         * before it reaches the header table, so that a name carrying
+         * separators or control characters and a value carrying CR/LF cannot
+         * inject additional headers. */
+        if (!name || !*name || !value)
+        {
+            free( name_buf );
+            free( value_buf );
+            ret = ERROR_INVALID_PARAMETER;
+            goto done;
+        }
+        for (p = name; *p; p++)
+        {
+            if (valid_token_char( *p )) continue;
+            free( name_buf );
+            free( value_buf );
+            ret = ERROR_WINHTTP_INVALID_HEADER;
+            goto done;
+        }
+        for (p = value; *p; p++)
+        {
+            if (*p != '\r' && *p != '\n') continue;
+            free( name_buf );
+            free( value_buf );
+            ret = ERROR_WINHTTP_INVALID_HEADER;
+            goto done;
+        }
+
+        /* process_header() copies the strings, so the buffers can be freed
+         * right after the call. */
+        ret = process_header( request, name, value, modifiers, TRUE );
+        free( name_buf );
+        free( value_buf );
+        if (ret)
+        {
+            TRACE( "entry %lu failed: %lu\n", i, ret );
+            goto done;
+        }
+    }
+
+done:
+    release_object( &request->hdr );
+    SetLastError( ret );
+    return ret;
+}
+
         lstrcatW( ret, path );
         lstrcatW( ret, L" " );
         lstrcatW( ret, request->version );

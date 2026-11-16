@@ -41,6 +41,7 @@ static DWORD (WINAPI *pWinHttpWebSocketQueryCloseStatus)(HINTERNET,USHORT*,void*
 static DWORD (WINAPI *pWinHttpWebSocketReceive)(HINTERNET,void*,DWORD,DWORD*,WINHTTP_WEB_SOCKET_BUFFER_TYPE*);
 static DWORD (WINAPI *pWinHttpWebSocketSend)(HINTERNET,WINHTTP_WEB_SOCKET_BUFFER_TYPE,void*,DWORD);
 static DWORD (WINAPI *pWinHttpWebSocketShutdown)(HINTERNET,USHORT,void*,DWORD);
+static DWORD (WINAPI *pWinHttpAddRequestHeadersEx)(HINTERNET,DWORD,ULONGLONG,ULONGLONG,DWORD,WINHTTP_EXTENDED_HEADER*);
 
 static BOOL proxy_active(void)
 {
@@ -1058,6 +1059,253 @@ static void test_WinHttpAddHeaders(void)
     ret = WinHttpCloseHandle(session);
     ok(ret == TRUE, "WinHttpCloseHandle failed on closing session, got %d.\n", ret);
 
+}
+
+static void query_request_header( HINTERNET request, const WCHAR *name, const WCHAR *expect, unsigned int line )
+{
+    WCHAR buffer[MAX_PATH];
+    DWORD index = 0, len = sizeof(buffer);
+    BOOL ret;
+
+    buffer[0] = 0;
+    ret = WinHttpQueryHeaders( request, WINHTTP_QUERY_CUSTOM | WINHTTP_QUERY_FLAG_REQUEST_HEADERS,
+                               name, buffer, &len, &index );
+    if (expect)
+    {
+        ok_( __FILE__, line )( ret, "querying %s failed: %lu\n", debugstr_w(name), GetLastError() );
+        ok_( __FILE__, line )( !wcscmp( buffer, expect ), "header %s: got %s, expected %s\n",
+                               debugstr_w(name), debugstr_w(buffer), debugstr_w(expect) );
+        ok_( __FILE__, line )( index == 1, "header %s: index %lu\n", debugstr_w(name), index );
+    }
+    else
+    {
+        ok_( __FILE__, line )( !ret, "header %s: unexpectedly present\n", debugstr_w(name) );
+        ok_( __FILE__, line )( GetLastError() == ERROR_WINHTTP_HEADER_NOT_FOUND, "header %s: got error %lu\n",
+                               debugstr_w(name), GetLastError() );
+    }
+}
+
+static void test_WinHttpAddRequestHeadersEx(void)
+{
+    static const WCHAR name[] = {'X','-','T','e','s','t','-','N','a','m','e',0};
+    static const WCHAR value[] = {'v','a','l','u','e',0};
+    static const WCHAR unicode_value[] = {0x00e9, 0x4e2d, 0x6587, 0};
+    static const WCHAR bad_name[] = {'B','a','d',' ','N','a','m','e',0};
+    static const WCHAR bad_value[] = {'o','k','\r','\n','X','-','E','v','i','l',':',' ','1',0};
+    static const WCHAR colon_name[] = {'X','-','N','a','m','e',':','v','a','l','u','e',0};
+    static const WCHAR control_name[] = {'X','-','N','a','m','e','\t','x',0};
+    static const WCHAR space_name[] = {'X',' ','N','a','m','e',0};
+    static const WCHAR first_name[] = {'X','-','F','i','r','s','t',0};
+    static const WCHAR first_value[] = {'1',0};
+    static const WCHAR second_name[] = {'X','-','S','e','c','o','n','d',0};
+    static const WCHAR second_value[] = {'2',0};
+    WINHTTP_EXTENDED_HEADER headers[2];
+    HINTERNET session, connection, request, other;
+    WCHAR expected[MAX_PATH];
+    DWORD ret;
+
+    if (!pWinHttpAddRequestHeadersEx)
+    {
+        win_skip( "WinHttpAddRequestHeadersEx not available\n" );
+        return;
+    }
+
+    session = WinHttpOpen( L"winetest", WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, 0 );
+    ok( session != NULL, "failed to open session %lu\n", GetLastError() );
+    connection = WinHttpConnect( session, L"localhost", 80, 0 );
+    ok( connection != NULL, "failed to open a connection %lu\n", GetLastError() );
+    request = WinHttpOpenRequest( connection, L"GET", L"/extended", NULL, NULL, NULL, 0 );
+    ok( request != NULL, "failed to open a request %lu\n", GetLastError() );
+
+    /* invalid handles and handle types */
+    SetLastError( 0xdeadbeef );
+    ret = pWinHttpAddRequestHeadersEx( NULL, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 0, NULL );
+    ok( ret == ERROR_INVALID_HANDLE, "got %lu\n", ret );
+    ok( GetLastError() == ERROR_INVALID_HANDLE, "got %lu\n", GetLastError() );
+    ret = pWinHttpAddRequestHeadersEx( session, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 0, NULL );
+    ok( ret == ERROR_WINHTTP_INCORRECT_HANDLE_TYPE, "got %lu\n", ret );
+    ok( GetLastError() == ERROR_WINHTTP_INCORRECT_HANDLE_TYPE, "got %lu\n", GetLastError() );
+
+    /* empty batch */
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 0, NULL );
+    ok( ret == ERROR_SUCCESS, "got %lu\n", ret );
+
+    /* count without array */
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 1, NULL );
+    ok( ret == ERROR_INVALID_PARAMETER, "got %lu\n", ret );
+
+    /* unsupported modifiers, flags and reserved value */
+    headers[0].pwszName = name;
+    headers[0].pwszValue = value;
+    ret = pWinHttpAddRequestHeadersEx( request, 1, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE, 0, 1, headers );
+    ok( ret == ERROR_INVALID_PARAMETER, "got %lu\n", ret );
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, 2, 0, 1, headers );
+    ok( ret == ERROR_INVALID_PARAMETER, "got %lu\n", ret );
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       1, 1, headers );
+    ok( ret == ERROR_INVALID_PARAMETER, "got %lu\n", ret );
+    query_request_header( request, name, NULL, __LINE__ );
+
+    /* Unicode entry */
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 1, headers );
+    ok( ret == ERROR_SUCCESS, "got %lu\n", ret );
+    /* the stored field is exactly the name, without a trailing colon */
+    query_request_header( request, name, value, __LINE__ );
+    query_request_header( request, L"X-Test-Name:", NULL, __LINE__ );
+
+    /* narrow entry */
+    headers[0].pszName = "X-Narrow";
+    headers[0].pszValue = "narrow";
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, 0, 0, 1, headers );
+    ok( ret == ERROR_SUCCESS, "got %lu\n", ret );
+    query_request_header( request, L"X-Narrow", L"narrow", __LINE__ );
+
+    /* non-ASCII narrow bytes: Wine converts them with the ANSI code page. This
+     * records the implementation behaviour only; the native narrow encoding is
+     * not verified, and the expected value is derived from the same conversion. */
+    if (MultiByteToWideChar( CP_ACP, 0, "caf\xe9", -1, expected, ARRAY_SIZE(expected) ))
+    {
+        headers[0].pszName = "X-Ansi";
+        headers[0].pszValue = "caf\xe9";
+        ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, 0, 0, 1, headers );
+        ok( ret == ERROR_SUCCESS, "got %lu\n", ret );
+        query_request_header( request, L"X-Ansi", expected, __LINE__ );
+    }
+
+    /* non-ASCII Unicode value */
+    headers[0].pwszName = L"X-Unicode";
+    headers[0].pwszValue = unicode_value;
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 1, headers );
+    ok( ret == ERROR_SUCCESS, "got %lu\n", ret );
+    query_request_header( request, L"X-Unicode", unicode_value, __LINE__ );
+
+    /* REPLACE with an empty value removes the header, and does not add it */
+    headers[0].pwszName = name;
+    headers[0].pwszValue = L"";
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_REPLACE, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 1, headers );
+    ok( ret == ERROR_SUCCESS, "got %lu\n", ret );
+    query_request_header( request, name, NULL, __LINE__ );
+
+    /* REPLACE of a missing header without ADD */
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_REPLACE, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 1, headers );
+    ok( ret == ERROR_WINHTTP_HEADER_NOT_FOUND, "got %lu\n", ret );
+
+    /* ADD_IF_NEW on an existing header */
+    headers[0].pwszValue = value;
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 1, headers );
+    ok( ret == ERROR_SUCCESS, "got %lu\n", ret );
+    headers[0].pwszValue = L"other";
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD_IF_NEW, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 1, headers );
+    ok( ret == ERROR_WINHTTP_HEADER_ALREADY_EXISTS, "got %lu\n", ret );
+    query_request_header( request, name, value, __LINE__ );
+
+    /* coalesce */
+    headers[0].pwszValue = L"more";
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_COALESCE_WITH_COMMA,
+                                       WINHTTP_EXTENDED_HEADER_FLAG_UNICODE, 0, 1, headers );
+    ok( ret == ERROR_SUCCESS, "got %lu\n", ret );
+    query_request_header( request, name, L"value, more", __LINE__ );
+
+    /* invalid names and values are rejected, nothing is added */
+    headers[0].pwszName = bad_name;
+    headers[0].pwszValue = value;
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 1, headers );
+    ok( ret == ERROR_WINHTTP_INVALID_HEADER, "got %lu\n", ret );
+    query_request_header( request, bad_name, NULL, __LINE__ );
+    /* a name carrying a colon, a control character or a separator is rejected */
+    headers[0].pwszName = colon_name;
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 1, headers );
+    ok( ret == ERROR_WINHTTP_INVALID_HEADER, "got %lu\n", ret );
+    query_request_header( request, L"X-Name", NULL, __LINE__ );
+    query_request_header( request, colon_name, NULL, __LINE__ );
+    headers[0].pwszName = control_name;
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 1, headers );
+    ok( ret == ERROR_WINHTTP_INVALID_HEADER, "got %lu\n", ret );
+    headers[0].pwszName = space_name;
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 1, headers );
+    ok( ret == ERROR_WINHTTP_INVALID_HEADER, "got %lu\n", ret );
+    headers[0].pwszName = L"";
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 1, headers );
+    ok( ret == ERROR_INVALID_PARAMETER, "got %lu\n", ret );
+    headers[0].pwszName = NULL;
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 1, headers );
+    ok( ret == ERROR_INVALID_PARAMETER, "got %lu\n", ret );
+
+    /* a value carrying CR/LF must not inject an extra header */
+    headers[0].pwszName = L"X-Safe";
+    headers[0].pwszValue = bad_value;
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 1, headers );
+    ok( ret == ERROR_WINHTTP_INVALID_HEADER, "got %lu\n", ret );
+    query_request_header( request, L"X-Evil", NULL, __LINE__ );
+
+    /* a NULL value is rejected rather than treated as an empty value */
+    headers[0].pwszValue = NULL;
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 1, headers );
+    ok( ret == ERROR_INVALID_PARAMETER || broken(ret == ERROR_SUCCESS) /* < win10 */, "got %lu\n", ret );
+
+    /* partial apply: the first entry is kept, the failing entry is not */
+    headers[0].pwszName = first_name;
+    headers[0].pwszValue = first_value;
+    headers[1].pwszName = bad_name;
+    headers[1].pwszValue = second_value;
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 2, headers );
+    ok( ret == ERROR_WINHTTP_INVALID_HEADER, "got %lu\n", ret );
+    query_request_header( request, first_name, first_value, __LINE__ );
+    query_request_header( request, bad_name, NULL, __LINE__ );
+
+    /* several entries in one call */
+    headers[0].pwszName = first_name;
+    headers[0].pwszValue = L"1a";
+    headers[1].pwszName = second_name;
+    headers[1].pwszValue = second_value;
+    ret = pWinHttpAddRequestHeadersEx( request, WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE,
+                                       WINHTTP_EXTENDED_HEADER_FLAG_UNICODE, 0, 2, headers );
+    ok( ret == ERROR_SUCCESS, "got %lu\n", ret );
+    query_request_header( request, first_name, L"1a", __LINE__ );
+    query_request_header( request, second_name, second_value, __LINE__ );
+
+    /* request-only: response headers are not touched */
+    query_request_header( request, name, L"value, more", __LINE__ );
+
+    /* the old API keeps working next to the new one */
+    ret = WinHttpAddRequestHeaders( request, L"X-Legacy: legacy", ~0u, WINHTTP_ADDREQ_FLAG_ADD );
+    ok( ret, "got %lu\n", GetLastError() );
+    query_request_header( request, L"X-Legacy", L"legacy", __LINE__ );
+
+    /* the headers are applied to the request that is sent */
+    other = WinHttpOpenRequest( connection, L"GET", L"/extended-other", NULL, NULL, NULL, 0 );
+    ok( other != NULL, "failed to open a request %lu\n", GetLastError() );
+    headers[0].pwszName = L"X-Other";
+    headers[0].pwszValue = L"other";
+    ret = pWinHttpAddRequestHeadersEx( other, WINHTTP_ADDREQ_FLAG_ADD, WINHTTP_EXTENDED_HEADER_FLAG_UNICODE,
+                                       0, 1, headers );
+    ok( ret == ERROR_SUCCESS, "got %lu\n", ret );
+    query_request_header( other, L"X-Other", L"other", __LINE__ );
+    query_request_header( request, L"X-Other", NULL, __LINE__ );
+
+    WinHttpCloseHandle( other );
+    WinHttpCloseHandle( request );
+    WinHttpCloseHandle( connection );
+    WinHttpCloseHandle( session );
 }
 
 static void CALLBACK cert_error(HINTERNET handle, DWORD_PTR ctx, DWORD status, LPVOID buf, DWORD len)
@@ -6550,3 +6798,5 @@ START_TEST (winhttp)
     WaitForSingleObject(thread, 3000);
     CloseHandle(thread);
 }
+    pWinHttpAddRequestHeadersEx = (void *)GetProcAddress(mod, "WinHttpAddRequestHeadersEx");
+    test_WinHttpAddRequestHeadersEx();

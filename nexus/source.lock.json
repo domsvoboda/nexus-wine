@@ -58,9 +58,9 @@
     "dlls/winhttp/Makefile.in": "44ce72f547cf0d6f5174cfd53685b663a247ae98803c19af489e34c483fadf3a",
     "dlls/winhttp/http2.c": "ae8cbf0bf03fc0a9c6b528b34637ade626ed51664bac425b08578075a9f72009",
     "dlls/winhttp/net.c": "444baa64f843c97f66aab2017dfc16b70ec097df053b9700f641c8a400e2d59a",
-    "dlls/winhttp/request.c": "839559206757e1ce2b0758bc3409ffba9618df672e1d73233dca2c0c1c02bebf",
+    "dlls/winhttp/request.c": "9b53219c269680f45b14b3c6c348545af40b20cafc0c9f5ea6ab465511378e32",
     "dlls/winhttp/session.c": "3f561279f8f84e831a3c40f34bf3c5a92647171cf684a8168c97b6596a0b2320",
-    "dlls/winhttp/tests/winhttp.c": "7a68a25f51d288ad1085ae66233cfe80059d847c7d9c73a3d32bdf9755fa0d6a",
+    "dlls/winhttp/tests/winhttp.c": "69fe832fc2d345a71abb242b72857ff880cd074ae288202f1e991ec37b6861db",
     "dlls/winhttp/winhttp_private.h": "e77fe4b0c204882946ed4cf048a4706883d70b2d784bda3ac8ec7a92b1a1066e",
     "dlls/wintypes/main.c": "af0e657d462c19090b4791b31837dba960448bfb111e30a90990f5090ec939da",
     "dlls/windows.applicationmodel/Makefile.in": "618bfa0d1c29fcb52382a8cd0554dea4bc5ec8d49275408af9fd0c7cbe2888aa",
@@ -90,9 +90,10 @@
     "dlls/ntdll/unix/process.c": "12c3e6ba75dd6320c401b080e265dbb1180660a8e6465643c30ba692ae8ae61a",
     "dlls/ntdll/unix/unix_private.h": "d5119987b0e5088cd26804c6a89febd3fa9a552c29639230f76f6d8d9d9abf3f",
     "dlls/ntdll/unixlib.h": "0e3668417ce43ce70335841d4221c28adda6a6f252bd812d1285be5a1562f9d3",
-    "dlls/winhttp/winhttp.spec": "a851f73363db9b20fcc0a6dc8d2630ade7657b96b1f56d4367d9b2defe6679bf",
+    "dlls/winhttp/winhttp.spec": "11f517066f867f821236e39e6e3a5c76583830e2a90713248b45a9f5bf576cb1",
     "dlls/winhttp/tests/Makefile.in": "d73bd87967f3c81c5ec90f333fa425b4efb1545ba8cc5aa29ed5e0fa218d8295",
     "dlls/winhttp/tests/cancellation.c": "f715a34efd9f51acdce016461c6f4feb7bc4fbe5d6ec8129373b0b66864ac786",
-    "dlls/windows.applicationmodel/package_dependencies.h": "e8a858ec50f7cad3cc2f2118f19f90782a65bcc7eaef2ba6b228a6be267c1abd"
+    "dlls/windows.applicationmodel/package_dependencies.h": "e8a858ec50f7cad3cc2f2118f19f90782a65bcc7eaef2ba6b228a6be267c1abd",
+    "include/winhttp.h": "cbe7f364d4cf232d584913089b96fe506f1546ade1fd2a3ba96a21ad828303fb"
   }
 }
