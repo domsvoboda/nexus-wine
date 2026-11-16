@@ -969,6 +969,55 @@ static void remove_header( struct request *request, const WCHAR *header, BOOL re
     if (index != -1) delete_header( request, index );
 }
 
+/* Remove a response header from both the parsed table and the raw header block.
+ * The raw block is compacted in place: retained lines are memmove'd left, so the
+ * output never grows and never overwrites an unread line. Request headers are not
+ * touched (request_only is FALSE for response headers). */
+static void remove_decoded_response_header( struct request *request, const WCHAR *name )
+{
+    WCHAR *line = request->raw_headers, *output = line;
+    SIZE_T name_length = wcslen( name );
+
+    while (get_header_index( request, name, 0, FALSE ) != -1)
+        remove_header( request, name, FALSE );
+    if (!line) return;
+    while (*line)
+    {
+        WCHAR *end = wcsstr( line, L"\r\n" );
+        SIZE_T length = end ? (SIZE_T)(end - line) : wcslen( line );
+        SIZE_T copied = length + (end ? 2 : 0);
+        BOOL remove = length > name_length && line[name_length] == ':' &&
+                      !wcsnicmp( line, name, name_length );
+        if (!remove)
+        {
+            memmove( output, line, copied * sizeof(WCHAR) );
+            output += copied;
+        }
+        if (!end) break;
+        line = end + 2;
+    }
+    *output = 0;
+}
+
+/* TRUE when the response carries exactly one Content-Encoding field and its whole
+ * value is the given supported token. Multiple or repeated codings are left
+ * undecoded so that no still-coded body is ever described as unencoded. */
+static BOOL single_supported_coding( struct request *request, const WCHAR *token )
+{
+    int index;
+    BOOL found = FALSE;
+
+    if (wcsicmp( token, L"gzip" ) && wcsicmp( token, L"deflate" )) return FALSE;
+    for (index = 0; index < request->num_headers; index++)
+    {
+        struct header *header = &request->headers[index];
+        if (header->is_request || wcsicmp( header->field, L"Content-Encoding" )) continue;
+        if (found || wcsicmp( header->value, token )) return FALSE;
+        found = TRUE;
+    }
+    return found;
+}
+
 DWORD process_header( struct request *request, const WCHAR *field, const WCHAR *value, DWORD flags, BOOL request_only )
 {
     int index;
@@ -1095,6 +1144,162 @@ BOOL WINAPI WinHttpAddRequestHeaders( HINTERNET hrequest, const WCHAR *headers, 
     release_object( &request->hdr );
     SetLastError( ret );
     return !ret;
+}
+
+/* Modifiers accepted by WinHttpAddRequestHeadersEx. They share the values of the
+ * WinHttpAddRequestHeaders flags, but are a separate, 32-bit parameter. Unknown
+ * modifier bits are rejected; the exact native behaviour for them is not verified. */
+#define EXTENDED_HEADER_MODIFIERS (WINHTTP_ADDREQ_FLAG_ADD_IF_NEW | WINHTTP_ADDREQ_FLAG_ADD \
+                                   | WINHTTP_ADDREQ_FLAG_COALESCE_WITH_COMMA \
+                                   | WINHTTP_ADDREQ_FLAG_COALESCE_WITH_SEMICOLON \
+                                   | WINHTTP_ADDREQ_FLAG_REPLACE)
+
+/* The only documented WinHttpAddRequestHeadersEx flag: names and values are UTF-16.
+ * Unknown bits are rejected; the exact native behaviour for them is not verified. */
+#define EXTENDED_HEADER_FLAGS (WINHTTP_EXTENDED_HEADER_FLAG_UNICODE)
+
+/* Maximum number of WCHAR characters accepted for a field name or value. */
+#define EXTENDED_HEADER_MAX_LEN 0x7fffffff
+
+/* Convert a narrow extended header string using the ANSI code page. The
+ * documentation only says "narrow"; UTF-8 versus ANSI is not verified. Returns
+ * ERROR_SUCCESS and a NUL-terminated string, or an error code. */
+static DWORD extended_header_from_ansi( const char *src, WCHAR **ret )
+{
+    WCHAR *dst;
+    int len;
+
+    *ret = NULL;
+    if (!(len = MultiByteToWideChar( CP_ACP, 0, src, -1, NULL, 0 ))) return GetLastError();
+    if (len > EXTENDED_HEADER_MAX_LEN) return ERROR_INVALID_PARAMETER;
+    if (!(dst = malloc( len * sizeof(WCHAR) ))) return ERROR_OUTOFMEMORY;
+    if (!MultiByteToWideChar( CP_ACP, 0, src, -1, dst, len ))
+    {
+        DWORD err = GetLastError();
+        free( dst );
+        return err;
+    }
+    *ret = dst;
+    return ERROR_SUCCESS;
+}
+
+/***********************************************************************
+ *          WinHttpAddRequestHeadersEx (winhttp.@)
+ */
+DWORD WINAPI WinHttpAddRequestHeadersEx( HINTERNET hrequest, DWORD modifiers, ULONGLONG flags,
+                                         ULONGLONG reserved, DWORD count,
+                                         WINHTTP_EXTENDED_HEADER *headers )
+{
+    DWORD i, ret = ERROR_SUCCESS;
+    struct request *request;
+
+    TRACE( "%p, %#lx, %#I64x, %#I64x, %lu, %p\n", hrequest, modifiers, flags, reserved, count, headers );
+
+    if (!(request = (struct request *)grab_object( hrequest )))
+    {
+        SetLastError( ERROR_INVALID_HANDLE );
+        return GetLastError();
+    }
+    if (request->hdr.type != WINHTTP_HANDLE_TYPE_REQUEST)
+    {
+        release_object( &request->hdr );
+        SetLastError( ERROR_WINHTTP_INCORRECT_HANDLE_TYPE );
+        return GetLastError();
+    }
+    if (modifiers & ~EXTENDED_HEADER_MODIFIERS)
+    {
+        WARN( "unsupported modifiers %#lx\n", modifiers );
+        ret = ERROR_INVALID_PARAMETER;
+        goto done;
+    }
+    if (flags & ~EXTENDED_HEADER_FLAGS)
+    {
+        WARN( "unsupported flags %#I64x\n", flags );
+        ret = ERROR_INVALID_PARAMETER;
+        goto done;
+    }
+    if (reserved)
+    {
+        WARN( "unsupported reserved value %#I64x\n", reserved );
+        ret = ERROR_INVALID_PARAMETER;
+        goto done;
+    }
+    if (count && !headers)
+    {
+        ret = ERROR_INVALID_PARAMETER;
+        goto done;
+    }
+
+    /* Entries are applied in order; a failing entry stops processing and is
+     * reported, entries before it stay applied (partial apply). */
+    for (i = 0; i < count; i++)
+    {
+        WCHAR *name_buf = NULL, *value_buf = NULL;
+        const WCHAR *name = NULL, *value = NULL, *p;
+        BOOL unicode = flags & WINHTTP_EXTENDED_HEADER_FLAG_UNICODE;
+
+        if (unicode)
+        {
+            name = headers[i].pwszName;
+            value = headers[i].pwszValue;
+        }
+        else
+        {
+            if (headers[i].pszName && (ret = extended_header_from_ansi( headers[i].pszName, &name_buf )))
+                goto done;
+            if (headers[i].pszValue && (ret = extended_header_from_ansi( headers[i].pszValue, &value_buf )))
+            {
+                free( name_buf );
+                goto done;
+            }
+            name = name_buf;
+            value = value_buf;
+        }
+
+        /* Validate the entry with the same rules as WinHttpAddRequestHeaders
+         * before it reaches the header table, so that a name carrying
+         * separators or control characters and a value carrying CR/LF cannot
+         * inject additional headers. */
+        if (!name || !*name || !value)
+        {
+            free( name_buf );
+            free( value_buf );
+            ret = ERROR_INVALID_PARAMETER;
+            goto done;
+        }
+        for (p = name; *p; p++)
+        {
+            if (valid_token_char( *p )) continue;
+            free( name_buf );
+            free( value_buf );
+            ret = ERROR_WINHTTP_INVALID_HEADER;
+            goto done;
+        }
+        for (p = value; *p; p++)
+        {
+            if (*p != '\r' && *p != '\n') continue;
+            free( name_buf );
+            free( value_buf );
+            ret = ERROR_WINHTTP_INVALID_HEADER;
+            goto done;
+        }
+
+        /* process_header() copies the strings, so the buffers can be freed
+         * right after the call. */
+        ret = process_header( request, name, value, modifiers, TRUE );
+        free( name_buf );
+        free( value_buf );
+        if (ret)
+        {
+            TRACE( "entry %lu failed: %lu\n", i, ret );
+            goto done;
+        }
+    }
+
+done:
+    release_object( &request->hdr );
+    SetLastError( ret );
+    return ret;
 }
 
 static WCHAR *build_absolute_request_path( struct request *request, const WCHAR **path )
@@ -3084,12 +3289,19 @@ static DWORD set_content_length( struct request *request, DWORD status )
         {
             BOOL decode = FALSE;
             if (!wcsicmp( buf, L"gzip" ) && (request->hdr.decompression & WINHTTP_DECOMPRESSION_FLAG_GZIP))
-            { ret = init_gzip_stream( request, TRUE ); decode = TRUE; }
+            {
+                if (single_supported_coding( request, L"gzip" )) { ret = init_gzip_stream( request, TRUE ); decode = TRUE; }
+            }
             else if (!wcsicmp( buf, L"deflate" ) && (request->hdr.decompression & WINHTTP_DECOMPRESSION_FLAG_DEFLATE))
-            { ret = init_gzip_stream( request, FALSE ); decode = TRUE; }
+            {
+                if (single_supported_coding( request, L"deflate" )) { ret = init_gzip_stream( request, FALSE ); decode = TRUE; }
+            }
             if (decode && !ret)
             {
-                remove_header( request, L"Content-Length", FALSE );
+                /* The body is now decoded, so both header views must describe the decoded
+                 * body: drop the coding and the compressed wire length. */
+                remove_decoded_response_header( request, L"Content-Length" );
+                remove_decoded_response_header( request, L"Content-Encoding" );
                 request->content_length = ~0ull;
             }
         }

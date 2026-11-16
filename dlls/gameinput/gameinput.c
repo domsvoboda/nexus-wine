@@ -492,6 +492,7 @@ static HRESULT WINAPI game_input_v0_RegisterDeviceCallback( IGameInput_v0 *iface
     FIXME( "impl %p device_iface %p input_kind %#x status_filter %#x enumeration_kind %#x, context %p callback %p token %p stub!\n",
            impl, device_iface, input_kind, status_filter, enumeration_kind, context, callback, token );
 
+    if (token) *token = 0;
     if (FAILED(hr = device_callback_create( device_iface, input_kind, status_filter, context, callback, &entry ))) return hr;
 
     EnterCriticalSection( &game_input_cs );
@@ -503,7 +504,7 @@ static HRESULT WINAPI game_input_v0_RegisterDeviceCallback( IGameInput_v0 *iface
 
     LeaveCriticalSection( &game_input_cs );
 
-    *token = (UINT_PTR)entry;
+    if (token) *token = (UINT_PTR)entry;
 
     return hr;
 }
