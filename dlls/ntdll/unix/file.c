@@ -7209,6 +7209,77 @@ static void ignore_server_ioctl_struct_holes( ULONG code, const void *in_buffer,
 }
 
 
+/* Linux FICLONE and FICLONERANGE from linux/fs.h, which conflicts with sys/mount.h. */
+#ifdef __linux__
+struct linux_file_clone_range
+{
+    int64_t  src_fd;
+    uint64_t src_offset;
+    uint64_t src_length;
+    uint64_t dest_offset;
+};
+#define LINUX_FICLONE      _IOW( 0x94, 9, int )
+#define LINUX_FICLONERANGE _IOW( 0x94, 13, struct linux_file_clone_range )
+#endif
+
+/* Share the source's blocks with the target instead of copying them, where the
+ * filesystem supports it (btrfs, XFS). */
+static NTSTATUS duplicate_extents( HANDLE handle, const void *in_buffer, ULONG in_size )
+{
+#ifdef __linux__
+    const DUPLICATE_EXTENTS_DATA *data = in_buffer;
+    int src_fd, dst_fd, src_needs_close, dst_needs_close, ret;
+    NTSTATUS status;
+    struct stat st;
+
+    if (!data || in_size < sizeof(*data)) return STATUS_INVALID_PARAMETER;
+    if (data->SourceFileOffset.QuadPart < 0 || data->TargetFileOffset.QuadPart < 0 ||
+        data->ByteCount.QuadPart < 0)
+        return STATUS_INVALID_PARAMETER;
+    if ((status = server_get_unix_fd( handle, FILE_WRITE_DATA, &dst_fd, &dst_needs_close, NULL, NULL )))
+        return status;
+    if ((status = server_get_unix_fd( data->FileHandle, FILE_READ_DATA, &src_fd, &src_needs_close, NULL, NULL )))
+    {
+        if (dst_needs_close) close( dst_fd );
+        return status;
+    }
+
+    if (fstat( src_fd, &st ) == -1) status = errno_to_status( errno );
+    else if (!data->SourceFileOffset.QuadPart && !data->TargetFileOffset.QuadPart &&
+             data->ByteCount.QuadPart >= st.st_size)
+    {
+        /* Whole file: FICLONE also accepts a size that is not block aligned. */
+        ret = ioctl( dst_fd, LINUX_FICLONE, src_fd );
+        if (ret == -1) status = errno_to_status( errno );
+    }
+    else
+    {
+        struct linux_file_clone_range range;
+        ULONGLONG count = data->ByteCount.QuadPart;
+
+        /* Callers round ByteCount up to the cluster size; Linux rejects a range past EOF. */
+        if (data->SourceFileOffset.QuadPart >= st.st_size) count = 0;
+        else if (count > st.st_size - data->SourceFileOffset.QuadPart)
+            count = st.st_size - data->SourceFileOffset.QuadPart;
+        if (count)
+        {
+            range.src_fd = src_fd;
+            range.src_offset = data->SourceFileOffset.QuadPart;
+            range.src_length = count;
+            range.dest_offset = data->TargetFileOffset.QuadPart;
+            ret = ioctl( dst_fd, LINUX_FICLONERANGE, &range );
+            if (ret == -1) status = errno_to_status( errno );
+        }
+    }
+
+    if (src_needs_close) close( src_fd );
+    if (dst_needs_close) close( dst_fd );
+    return status;
+#else
+    return STATUS_NOT_SUPPORTED;
+#endif
+}
+
 /******************************************************************************
  *              NtFsControlFile   (NTDLL.@)
  */
@@ -7302,6 +7373,11 @@ NTSTATUS WINAPI NtFsControlFile( HANDLE handle, HANDLE event, PIO_APC_ROUTINE ap
         TRACE("FSCTL_SET_SPARSE: Ignoring request\n");
         status = STATUS_SUCCESS;
         break;
+
+    case FSCTL_DUPLICATE_EXTENTS_TO_FILE:
+        status = duplicate_extents( handle, in_buffer, in_size );
+        break;
+
     default:
         return server_ioctl_file( handle, event, apc, apc_context, io, code,
                                   in_buffer, in_size, out_buffer, out_size );
