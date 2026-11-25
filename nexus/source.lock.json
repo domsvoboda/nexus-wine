@@ -59,7 +59,7 @@
     "dlls/windows.web/tests/web.c": "d5abd3dc21c828ac143b60418234d2e7c8921420943408018ce910a943883f5e",
     "dlls/winhttp/Makefile.in": "44ce72f547cf0d6f5174cfd53685b663a247ae98803c19af489e34c483fadf3a",
     "dlls/winhttp/http2.c": "dfbb695ba89d4f88d5f39a116dcffbaf52a48b7d964e65eec7c6ddf85d48b006",
-    "dlls/winhttp/net.c": "444baa64f843c97f66aab2017dfc16b70ec097df053b9700f641c8a400e2d59a",
+    "dlls/winhttp/net.c": "1685c627aa5e6ae6cc98d6dfbe55d464e1352f76c584732b53f89a9b97dd144b",
     "dlls/winhttp/request.c": "75ab076c1e13b213871f9161abe14d48c141e8b90d1aa0f17176b30b2e672367",
     "dlls/winhttp/session.c": "3f561279f8f84e831a3c40f34bf3c5a92647171cf684a8168c97b6596a0b2320",
     "dlls/winhttp/tests/winhttp.c": "8e6a0f79972a5a5c16d99a93af417e7af95a448ad4367872b662a80cdcc9ae25",
