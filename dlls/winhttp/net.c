@@ -452,6 +452,15 @@ DWORD netconn_secure_connect( struct netconn *conn, WCHAR *hostname, DWORD secur
         goto failed;
     }
 
+    if (conn->http2)
+    {
+        const int enabled = 1;
+        /* Let small frames, including request headers and WINDOW_UPDATEs,
+         * leave promptly when HTTP/2 was negotiated. */
+        if (setsockopt( (SOCKET)conn->socket, IPPROTO_TCP, TCP_NODELAY, (const char *)&enabled, sizeof(enabled) ))
+            WARN( "failed to set TCP_NODELAY, error %d.\n", WSAGetLastError() );
+    }
+
     TRACE("established SSL connection\n");
     conn->secure = TRUE;
     conn->ssl_ctx = ctx;
